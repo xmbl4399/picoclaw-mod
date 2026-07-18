@@ -1,0 +1,134 @@
+﻿<%+header%>
+<%
+local bridge = require "picoclaw_bridge"
+local running = bridge.is_running()
+local cfg = bridge.read_json()
+local ad = (cfg.agents or {}).defaults or {}
+local model_name = ad.model_name or "—"
+local ch = cfg.channel_list or {}
+local enabled_channels = 0
+for _, v in pairs(ch) do if v.enabled then enabled_channels = enabled_channels + 1 end end
+local gw_url = bridge.gateway_base()
+local ws_url = bridge.gateway_ws()
+
+-- Character registry for dropdown
+local char_reg = bridge.character_registry()
+local chars = char_reg.characters or {}
+local active_char = char_reg.active_char or ""
+%>
+
+<style>
+.pc-chat-wrap{display:flex;flex-direction:column;padding:0;margin:0;overflow:hidden}
+.pc-topbar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--card,#16213e);border:1px solid var(--border,#1e3a5f);border-radius:12px 12px 0 0;flex-shrink:0;font-size:12px}
+.pc-topbar .info{color:var(--text2,#889);display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px}
+.pc-topbar .info .val{color:var(--text,#e0e0e0);font-weight:500}
+.pc-topbar .actions{display:flex;gap:6px;margin-left:auto}
+.pc-topbar select{background:var(--input,#0d1b2a);color:var(--text,#e0e0e0);border:1px solid var(--border,#1e3a5f);border-radius:6px;padding:3px 8px;font-size:12px;outline:none;cursor:pointer;max-width:120px}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
+.status-dot.ok{background:#37a447;box-shadow:0 0 6px rgba(55,164,71,.5)}
+.status-dot.err{background:#c44}
+.pc-frame{flex:1;width:100%;border:none;border-radius:0 0 12px 12px;background:#1a1a2e}
+.pc-stopped{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:var(--card,#16213e);border:1px solid var(--border,#1e3a5f);border-radius:0 0 12px 12px;padding:40px 20px;text-align:center}
+.pc-stopped .icon{font-size:52px;opacity:.4}
+.pc-stopped .msg{font-size:14px;color:var(--text2,#889)}
+.pc-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;font-size:11px;font-weight:500;border:none;cursor:pointer;text-decoration:none;transition:all .15s}
+.pc-btn-primary{background:var(--accent2,#1a6fb5);color:#fff}
+.pc-btn-primary:hover{opacity:.85}
+.pc-btn-outline{background:transparent;color:var(--text2,#889);border:1px solid var(--border,#1e3a5f)}
+.pc-btn-outline:hover{color:var(--text,#e0e0e0);border-color:var(--accent2,#1a6fb5)}
+.pc-btn-sm{padding:3px 10px;font-size:11px}
+</style>
+
+<div class="pc-chat-wrap" id="chatWrap">
+  <div class="pc-topbar">
+    <span class="status-dot <%if running then%>ok<%else%>err<%end%>" id="chatDot"></span>
+    <span id="chatStatus" style="font-weight:500"><%if running then%>已连接<%else%>已停止<%end%></span>
+    <span style="opacity:.2">|</span>
+    <span style="font-size:11px">模型:</span>
+    <span class="val" id="chatModel" style="font-size:11px"><%=model_name%></span>
+    <!-- Character dropdown -->
+    <select id="charSelect" onchange="switchCharacter(this.value)">
+      <option value="">🎭 默认</option>
+      <% for _, c in ipairs(chars) do %>
+      <option value="<%=c.id%>" <%if c.id == active_char then%>selected<%end%>><%=c.name or c.id%></option>
+      <% end %>
+    </select>
+    <button class="pc-btn pc-btn-outline pc-btn-sm" onclick="chatPostMsg('newConversation')" title="新对话">💬 新对话</button>
+    <div class="actions">
+      <button class="pc-btn pc-btn-primary pc-btn-sm" onclick="chatPostMsg('openSettings')" id="settingsBtn" title="设置" style="font-size:14px;padding:3px 8px">⚙️</button>
+      <a class="pc-btn pc-btn-primary pc-btn-sm" href="<%=gw_url%>/" target="_blank" id="fullscreenLink">全屏</a>
+    </div>
+  </div>
+
+  <iframe class="pc-frame" id="chatFrame" src="<%=gw_url%>/?embed=1" style="<%if not running then%>display:none<%end%>"></iframe>
+
+  <div class="pc-stopped" id="stoppedMsg" style="<%if running then%>display:none<%end%>">
+    <div class="icon">🦞</div>
+    <div class="msg">PicoClaw 当前未运行</div>
+    <a class="cbi-button cbi-button-action important" href="<%=luci.dispatcher.build_url("admin","services","picoclaw","start")%>">启动服务</a>
+  </div>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+function resizeChat() {
+  var wrap = document.getElementById('chatWrap');
+  if (!wrap) return;
+  var top = 0, el = wrap;
+  do { top += el.offsetTop || 0; el = el.offsetParent; } while (el && el !== document.body);
+  var vh = window.innerHeight || document.documentElement.clientHeight;
+  var available = vh - top - 6;
+  if (available < 200) available = 200;
+  wrap.style.height = available + 'px';
+}
+window.addEventListener('resize', resizeChat);
+window.addEventListener('load', function() { setTimeout(resizeChat, 50); });
+setTimeout(resizeChat, 100);
+
+function chatPostMsg(cmd) {
+  var f = document.getElementById('chatFrame');
+  try { f.contentWindow.postMessage(cmd, '*'); }
+  catch(e){}
+}
+
+// Switch character via LuCI API, reload chat frame
+function switchCharacter(charId) {
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '<%=url("admin/services/picoclaw/char_switch")%>', true);
+  xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  xhr.onload = function() {
+    var frame = document.getElementById('chatFrame');
+    frame.src = frame.src.replace(/#.*$/, '') + '#r=' + Date.now();
+  };
+  xhr.send('id=' + encodeURIComponent(charId));
+}
+
+XHR.poll(5, '<%=url("admin/services/picoclaw/status_data")%>', null,
+  function(x, data) {
+    if (!data) return;
+    var dot = document.getElementById('chatDot');
+    var status = document.getElementById('chatStatus');
+    var frame = document.getElementById('chatFrame');
+    var stopped = document.getElementById('stoppedMsg');
+    var wasRunning = dot.className.indexOf('ok') >= 0;
+    var isRunning = data.running;
+
+    dot.className = 'status-dot ' + (isRunning ? 'ok' : 'err');
+    status.textContent = isRunning ? '已连接' : '已停止';
+
+    if (wasRunning !== isRunning) {
+      if (isRunning) {
+        frame.style.display = '';
+        stopped.style.display = 'none';
+        frame.src = frame.src.replace(/#.*$/, '') + '#' + Date.now();
+      } else {
+        frame.style.display = 'none';
+        stopped.style.display = '';
+      }
+    }
+    if (data.default_model) document.getElementById('chatModel').textContent = data.default_model;
+    if (data.gateway_url) document.getElementById('fullscreenLink').href = data.gateway_url + '/';
+  }
+);
+//]]></script>
+
+<%+footer%>

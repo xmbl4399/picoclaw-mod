@@ -1,0 +1,21 @@
+#!/bin/sh /etc/rc.common
+START=95
+STOP=10
+PROG=/mnt/sda1/picoclaw.sh
+PIDFILE=/var/run/picoclaw.pid
+CONFIG_DIR=/root/.picoclaw
+
+start() {
+    if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+        echo "PicoClaw already running"
+        return 0
+    fi
+    echo "Starting PicoClaw..."
+    cd "$CONFIG_DIR" && $PROG gateway > /tmp/picoclaw.log 2>&1 &
+    echo $! > "$PIDFILE"
+}
+stop() {
+    echo "Stopping PicoClaw..."
+    [ -f "$PIDFILE" ] && kill $(cat "$PIDFILE") 2>/dev/null
+    rm -f "$PIDFILE"
+}

@@ -1,0 +1,249 @@
+﻿<%+header%>
+<%
+local bridge = require "picoclaw_bridge"
+local running = bridge.is_running()
+local info = bridge.process_info()
+local cfg = bridge.read_json()
+local models = cfg.model_list or {}
+-- Filter to only models with api_keys
+local filtered = {}
+for _, m in ipairs(models) do
+    if m.api_keys and type(m.api_keys) == "table" and next(m.api_keys) ~= nil then
+ filtered[#filtered + 1] = m
+ end
+end
+models = filtered
+local ad = (cfg.agents or {}).defaults or {}
+local default_model = ad.model_name or "—"
+local model_count = #models
+local ch = cfg.channel_list or {}
+local enabled_channels = 0
+for _, v in pairs(ch) do if v.enabled then enabled_channels = enabled_channels + 1 end end
+local gw_url = bridge.gateway_base()
+local prov_summary = ""
+do
+	local pcount = {}
+	for _, m in ipairs(models) do
+		local p = m.provider or "unknown"
+		pcount[p] = (pcount[p] or 0) + 1
+	end
+	local first = true
+	for k, v in pairs(pcount) do
+		if not first then prov_summary = prov_summary .. " | " end
+		prov_summary = prov_summary .. k .. ": " .. v
+		first = false
+	end
+end
+%>
+
+<style>
+/* ─── 统一顶部栏 (与聊天页一致) ─── */
+.pc-topbar{display:flex;align-items:center;gap:12px;padding:8px 16px;background:var(--card,#16213e);border:1px solid var(--border,#1e3a5f);border-radius:12px;flex-shrink:0;font-size:12px;margin-bottom:16px}
+.pc-topbar .info{color:var(--text2,#889);display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px}
+.pc-topbar .info .val{color:var(--text,#e0e0e0);font-weight:500}
+.pc-topbar .actions{display:flex;gap:6px;margin-left:auto}
+.pc-topbar .actions a,.pc-topbar .actions button{text-decoration:none}
+/* ─── 布局 ─── */
+.pc-page{padding:16px 18px}
+.pc-page h2{margin:0 0 4px;font-size:18px;font-weight:600;letter-spacing:-0.3px}
+.pc-desc{color:var(--text2,#889);font-size:12px;margin-bottom:16px}
+.pc-grid{display:grid;gap:12px;margin-bottom:16px}
+@media(min-width:600px){.pc-grid{grid-template-columns:1fr 1fr}}
+@media(min-width:900px){.pc-grid{grid-template-columns:1fr 1fr 1fr}}
+/* ─── 卡片 ─── */
+.pc-card{background:var(--card,#16213e);border:1px solid var(--border,#1e3a5f);border-radius:12px;padding:18px;position:relative}
+.pc-card h3{margin:0 0 14px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2,#889)}
+.pc-stat-row{display:flex;align-items:baseline;gap:8px;margin:6px 0}
+.pc-stat-num{font-size:26px;font-weight:700;line-height:1}
+.pc-stat-label{font-size:11px;color:var(--text2,#889)}
+/* ─── 状态 ─── */
+.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
+.status-dot.ok{background:#37a447;box-shadow:0 0 8px rgba(55,164,71,.5)}
+.status-dot.err{background:#c44}
+.status-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500}
+.status-badge.ok{background:rgba(55,164,71,.15);color:#37a447}
+.status-badge.err{background:rgba(204,68,68,.15);color:#c44}
+/* ─── 表格 ─── */
+.pc-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.pc-tbl th{padding:8px 10px;text-align:left;color:var(--text2,#889);font-weight:500;border-bottom:2px solid var(--border,#1e3a5f);white-space:nowrap;font-size:11px;text-transform:uppercase;letter-spacing:0.3px}
+.pc-tbl td{padding:7px 10px;border-bottom:1px solid var(--border,#1e3a5f)}
+.def-badge{display:inline-block;background:var(--green,#27ae60);color:#fff;font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600}
+.pc-tbl-wrap{max-height:320px;overflow-y:auto;margin:0 -18px;padding:0 18px}
+/* ─── 健康卡片 ─── */
+.health-card{background:#0d1117;border:1px solid var(--border,#1e3a5f);border-radius:12px;padding:18px;margin-bottom:16px}
+.health-card h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2,#889);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.health-line{font-size:12px;font-family:'SF Mono','Fira Code',monospace;line-height:1.8;color:var(--text,#e0e0e0)}
+.health-line .key{color:#5a7a9a}
+/* ─── 按钮 ─── */
+.pc-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:500;border:none;cursor:pointer;text-decoration:none;transition:all .15s}
+.pc-btn-primary{background:var(--accent2,#1a6fb5);color:#fff}
+.pc-btn-primary:hover{opacity:.85}
+.pc-btn-danger{background:#b91c1c;color:#fff}
+.pc-btn-danger:hover{opacity:.85}
+.pc-btn-outline{background:transparent;border:1px solid var(--border,#1e3a5f);color:var(--text2,#889)}
+.pc-btn-outline:hover{border-color:var(--accent2);color:var(--text)}
+.pc-btn-sm{padding:4px 10px;font-size:11px}
+/* ─── 详情网格 ─── */
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12.5px}
+.detail-grid dt{color:var(--text2,#889);font-weight:500}
+.detail-grid dd{margin:0;font-weight:500}
+/* ─── 徽章 ─── */
+.pc-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;margin:2px;background:var(--accent,#0f3460);color:var(--accent2,#1a6fb5)}
+</style>
+
+<div class="pc-page">
+  <!-- 统一顶部栏 -->
+  <div class="pc-topbar">
+    <span class="status-dot <%if running then%>ok<%else%>err<%end%>" id="sdot"></span>
+    <span style="font-weight:500;font-size:12px" id="stxt"><%if running then%>运行中<%else%>已停止<%end%></span>
+    <span style="opacity:.2;font-size:12px">|</span>
+    <div class="info">
+      <span>PID: <span class="val" id="spid"><%=info and info.pid or "—"%></span></span>
+      <span>运行: <span class="val" id="supt"><%=info and info.uptime or "—"%></span></span>
+      <span>模型: <span class="val" id="sdefmodel"><%=default_model%></span></span>
+      <span>通道: <span class="val" id="schan"><%=enabled_channels%></span></span>
+    </div>
+    <div class="actions">
+      <a class="pc-btn pc-btn-primary pc-btn-sm" href="<%=luci.dispatcher.build_url("admin","services","picoclaw","chat")%>" target="_blank">聊天</a>
+      <% if running then %>
+      <a class="pc-btn pc-btn-outline pc-btn-sm" href="<%=luci.dispatcher.build_url("admin","services","picoclaw","restart")%>">重启</a>
+      <% else %>
+      <a class="pc-btn pc-btn-primary pc-btn-sm" href="<%=luci.dispatcher.build_url("admin","services","picoclaw","start")%>">启动</a>
+      <% end %>
+    </div>
+  </div>
+
+  <!-- 指标行 -->
+  <div class="pc-grid">
+    <div class="pc-card">
+      <h3>服务状态</h3>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <span class="status-badge <%if running then%>ok<%else%>err<%end%>" id="sbadge">
+          <span class="status-dot <%if running then%>ok<%else%>err<%end%>" id="sdot"></span>
+          <span id="stxt"><%if running then%>运行中<%else%>已停止<%end%></span>
+        </span>
+      </div>
+      <dl class="detail-grid">
+        <dt>进程 PID</dt><dd id="spid"><%=info and info.pid or "—"%></dd>
+        <dt>运行时间</dt><dd id="supt"><%=info and info.uptime or "—"%></dd>
+        <dt>网关地址</dt><dd><code id="gwPort">0.0.0.0:18790</code></dd>
+        <dt>默认模型</dt><dd id="sdefmodel"><%=default_model%></dd>
+        <% if info and info.memory then %><dt>内存占用</dt><dd><%=info.memory%></dd><% end %>
+      </dl>
+    </div>
+    <div class="pc-card">
+      <h3>统计信息</h3>
+      <div style="display:flex;gap:16px;margin-bottom:12px">
+        <div>
+          <div class="pc-stat-num"><%=model_count%></div>
+          <div class="pc-stat-label">模型数</div>
+        </div>
+        <div>
+          <div class="pc-stat-num" id="schan"><%=enabled_channels%></div>
+          <div class="pc-stat-label">通道 (启用)</div>
+        </div>
+        <div>
+          <div class="pc-stat-num" id="sver">—</div>
+          <div class="pc-stat-label">版本</div>
+        </div>
+      </div>
+      <dl class="detail-grid">
+        <dt>通道总数</dt><dd id="schanTotal"><%=#ch%></dd>
+        <dt>WebSocket</dt><dd><code id="wsUrl"><%=bridge.gateway_ws()%></code></dd>
+      </dl>
+      <% if prov_summary ~= "" then %><div style="font-size:11px;color:var(--text2,#889);margin-top:8px;line-height:1.6"><%=prov_summary%></div><% end %>
+    </div>
+  </div>
+
+  <!-- 健康检查卡片 (深色终端风格) -->
+  <div class="health-card">
+    <h3>
+      <span class="status-dot" id="hdot" style="width:8px;height:8px"></span>
+      网关健康检查
+    </h3>
+    <div class="health-line">
+      <span id="hstatus">检测中...</span>
+    </div>
+    <div class="health-line" id="hdetail" style="margin-top:4px"></div>
+  </div>
+
+  <!-- 模型列表 -->
+  <div class="pc-card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">模型列表 (<%=model_count%>)</h3>
+      <a class="pc-btn pc-btn-outline pc-btn-sm" href="<%=gw_url%>/models" target="_blank" id="modelsLink">查看全部</a>
+    </div>
+    <% if model_count > 0 then %>
+    <div class="pc-tbl-wrap">
+    <table class="pc-tbl">
+      <thead><tr>
+        <th>模型名称</th>
+        <th>提供商</th>
+        <th>默认</th>
+      </tr></thead>
+      <tbody>
+      <% for i=1, math.min(model_count, 15) do
+         local m = models[i]
+         if m then
+           local name = m.model_name or m.model or "-"
+           local prov = m.provider or "-"
+      %>
+      <tr>
+        <td><%=name%></td>
+        <td><%=prov%></td>
+        <td><% if name == default_model then %><span class="def-badge">默认</span><% end %></td>
+      </tr>
+      <% end end %>
+      <% if model_count > 15 then %>
+      <tr><td colspan="3" style="text-align:center;opacity:.5">+ 还有 <%=model_count - 15%> 个模型...</td></tr>
+      <% end %>
+      </tbody>
+    </table>
+    </div>
+    <% else %>
+    <div style="padding:12px;text-align:center;opacity:.5">暂无配置的模型</div>
+    <% end %>
+  </div>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+XHR.poll(5, '<%=url("admin/services/picoclaw/status_data")%>', null,
+  function(x, data) {
+    if (!data) return;
+    var ok = data.running;
+    document.getElementById('sdot').className = 'status-dot ' + (ok?'ok':'err');
+    document.getElementById('sbadge').className = 'status-badge ' + (ok?'ok':'err');
+    document.getElementById('stxt').textContent = ok ? '运行中' : '已停止';
+    document.getElementById('spid').textContent = data.pid || '—';
+    document.getElementById('supt').textContent = data.uptime || '—';
+    if (data.channel_count != null) document.getElementById('schan').textContent = data.channel_count;
+    if (data.channel_total != null) document.getElementById('schanTotal').textContent = data.channel_total;
+    if (data.build_version) document.getElementById('sver').textContent = data.build_version;
+    if (data.default_model) document.getElementById('sdefmodel').textContent = data.default_model;
+    if (data.gateway_url) {
+      document.getElementById('gwPort').textContent = data.gateway_url.replace('http://','') + ':18790';
+      document.getElementById('wsUrl').textContent = data.gateway_ws || '';
+      document.getElementById('modelsLink').href = data.gateway_url + '/models';
+    }
+    var hd = document.getElementById('hdot');
+    var hs = document.getElementById('hstatus');
+    var hdet = document.getElementById('hdetail');
+    if (data.health && data.health.status === 'ok') {
+      hd.className = 'status-dot ok';
+      hs.textContent = '健康 — 网关正在响应';
+      hdet.innerHTML = '<span class="key">PID:</span> ' + (data.health.pid || '—') +
+        ' &nbsp;|&nbsp; <span class="key">运行时间:</span> ' + (data.health.uptime || '—');
+    } else if (data.running) {
+      hd.style.background = '#aaa';
+      hs.textContent = '健康检查端点不可达';
+      hdet.innerHTML = '网关运行中但健康检查失败。';
+    } else {
+      hd.className = 'status-dot err';
+      hs.textContent = '离线 — 请启动服务';
+      hdet.innerHTML = '';
+    }
+  }
+);
+//]]></script>
+
+<%+footer%>
