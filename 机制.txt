@@ -1,0 +1,101 @@
+好的哥哥，以下是完整角色切换逻辑：
+
+---
+
+## 🦞 角色切换系统 — 完整逻辑
+
+### 一、数据层
+
+**注册文件** → `characters/_registry.json`
+```json
+{
+  "characters": [
+    { "id": "kirino",   "name": "Kirino",   "preview": "" },
+    { "id": "picoclaw", "name": "PicoClaw", "preview": "PicoClaw" },
+    { "id": "default",  "name": "default",  "preview": "default" }
+  ],
+  "active_char": "default"
+}
+```
+
+- `characters[]` — 所有已注册的角色卡列表
+- `active_char` — **当前激活的角色 id**（空字符串 = 默认）
+- 每个角色卡对应一个 `characters/{id}.md` 文件，存放完整人设 prompt
+
+**角色卡文件** → `characters/kirino.md`、`characters/miyuki-shiba.md` 等
+- 内部存储该角色的完整人设描述文本
+
+**SOUL.md** → 当前生效的角色 prompt
+- 内容 = 角色卡文件的内容
+- 它决定了助理当前以什么人格、口吻、身份与用户对话
+
+---
+
+### 二、切换流程
+
+#### 1️⃣ 列出角色
+读取 `_registry.json` 的 `characters[]` 数组，返回所有角色 id + name。
+
+#### 2️⃣ 切换角色（以切换到 kirino 为例）
+| 步骤 | 操作 | 说明 |
+|------|------|------|
+| ① | 读取 `characters/kirino.md` | 获取角色完整人设文本 |
+| ② | 将该文本**写入** `SOUL.md` | SOUL.md 内容覆盖为 kirino 的人设 |
+| ③ | 更新 `_registry.json` 中 `active_char` 为 `"kirino"` | 持久化当前激活状态 |
+
+**切换后**：助理完全以 kirino 的身份、语气和世界观进行回复。
+
+#### 3️⃣ 重置为默认
+| 步骤 | 操作 |
+|------|------|
+| ① | 将 `"I am PicoClaw, a helpful AI assistant."` 写回 `SOUL.md` |
+| ② | 将 `_registry.json` 的 `active_char` 置为 `""` |
+
+**重置后**：助理回到默认的 PicoClaw 身份。
+
+#### 4️⃣ 导入新角色（从用户消息解析）
+当用户发送格式如：
+```
+Name("五更琉璃")
+Age("16")
+...
+```
+解析逻辑：
+- 提取所有 `Key("value")` 格式字段
+- 组装为完整角色 prompt 文本
+- 用 name 生成 id（中文转拼音/英文小写连字符）
+- 写入 `characters/{id}.md`
+- 注册到 `_registry.json` 的 `characters[]`
+- 设置 `active_char` = 新 id
+- 写入 `SOUL.md`
+
+#### 5️⃣ 删除角色
+| 步骤 | 操作 |
+|------|------|
+| ① | 删除 `characters/{id}.md` 文件 |
+| ② | 从 `_registry.json` 的 `characters[]` 移除该条目 |
+| ③ | 如果该角色是当前激活的 → 自动重置 SOUL.md 为默认 |
+
+---
+
+### 三、核心设计要点
+
+```
+┌────────────────┐    读取/写入     ┌────────────────┐
+│  _registry.json │ ◄──────────────► │ characters/*.md │
+│  (注册表+状态)  │                  │  (角色人设存储) │
+└───────┬────────┘                  └────────────────┘
+        │ active_char 决定
+        ▼
+┌────────────────┐
+│   SOUL.md      │  ← 助理的人设/行为规则，最高优先级
+│  (运行时生效)  │
+└────────────────┘
+```- **SOUL.md** 是最高优先级的行为规则文件，助理每次回复前读取它
+- `_registry.json` 只是持久化当前状态的索引
+- 角色卡文件（`characters/*.md`）是纯文本存储，不参与运行时逻辑
+- 切换 = 文件替换 + 索引更新，**不涉及程序重启或状态迁移**
+
+---
+
+需要进一步了解某个角色卡的具体内容，或者想看桐乃那张卡里写了什么？😄

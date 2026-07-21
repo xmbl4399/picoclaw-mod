@@ -1,0 +1,55 @@
+#!/bin/sh
+# PicoClaw Mod - DeepSeek Translation CGI
+# Receives raw text via POST body, returns Chinese translation.
+
+printf 'Content-Type: text/plain; charset=utf-8\r\n\r\n'
+
+TEXT=$(cat -)
+if [ -z "$TEXT" ]; then
+  exit 0
+fi
+
+# Read API key from config.json or picoclaw.sh
+API_KEY=""
+if [ -f /root/.picoclaw/config.json ]; then
+  API_KEY=$(grep -o '"api_key":"[^"]*"' /root/.picoclaw/config.json 2>/dev/null | head -1 | cut -d'"' -f4)
+fi
+if [ -z "$API_KEY" ]; then
+  API_KEY=$(grep -o 'sk-[a-zA-Z0-9]*' /mnt/sda1/picoclaw.sh 2>/dev/null | head -1)
+fi
+if [ -z "$API_KEY" ]; then
+  echo "ERROR: no api key found"
+  exit 0
+fi
+
+# Escape JSON: backslash and double-quote
+JSON_TEXT=$(echo "$TEXT" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\n\r')
+
+# System prompt for character card translation
+SYS_PROMPT="将以下角色卡文本翻译为自然口语化的中文。角色名音译。保留所有格式、编号、标点符号。仅输出译文，不要解释。"
+
+# Build JSON payload
+BODY="{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"system\",\"content\":\"$SYS_PROMPT\"},{\"role\":\"user\",\"content\":\"$JSON_TEXT\"}],\"temperature\":0.3,\"max_tokens\":4096}"
+
+# Call DeepSeek API, extract content field from response
+RESULT=$(curl -s --connect-timeout 60 --max-time 120 \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d "$BODY" \
+  https://api.deepseek.com/chat/completions 2>/dev/null)
+
+if [ -z "$RESULT" ]; then
+  echo "ERROR: api call failed"
+  exit 0
+fi
+
+# Extract content from JSON response
+# DeepSeek response format: {"choices":[{"message":{"content":"..."}}],...}
+CONTENT=$(echo "$RESULT" | sed 's/.*"content":"//;s/","refusal".*//;s/","role".*//;s/".*//' | sed 's/\\n/\n/g;s/\\"/"/g;s/\\\\/\\/g')
+
+if [ -z "$CONTENT" ]; then
+  echo "ERROR: empty translation"
+  exit 0
+fi
+
+echo "$CONTENT"
