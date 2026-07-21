@@ -23,6 +23,32 @@
 
 ---
 
+## 🚀 AI 智能体一键部署
+
+把这份仓库交给 AI 助手，一句话部署到你的 OpenWrt 路由器：
+
+> **"帮我把这个项目部署到路由器 10.0.0.1，root 密码 xxxxx，API Key 是 sk-xxxxx"**
+
+AI 会自动完成：上传文件 → 安装 CGI → 配置 LuCI → 启动服务 → 验证运行。
+
+推荐工具：
+
+| 工具 | 说明 |
+|------|------|
+| [CodeBuddy](https://www.codebuddy.ai/) | 国内可用，支持直接操作路由器 SSH |
+| [Codex CLI](https://github.com/openai/codex) | OpenAI 出品，终端内使用 |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic 出品，agent 能力强 |
+
+只需准备好 3 个信息：
+
+```
+1. 路由器 IP + root 密码
+2. DeepSeek API Key（或其他模型）
+3. (可选) MimoTTS Token（语音功能需要）
+```
+
+---
+
 ## 快速开始
 
 ### 1. 配置 API Key
