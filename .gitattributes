@@ -1,0 +1,4 @@
+# Force LF line endings for shell scripts (BusyBox ash can't handle CRLF shebang)
+*.sh text eol=lf
+cgi/* text eol=lf
+scripts/* text eol=lf
