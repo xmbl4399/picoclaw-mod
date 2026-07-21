@@ -5,6 +5,24 @@
 
 ---
 
+## 截图
+
+<p align="center">
+  <img src="screenshots/Galgame%20WebUI%20聊天界面.png" width="45%" alt="Galgame WebUI 聊天界面">&nbsp;
+  <img src="screenshots/QQ%20频道对话.png" width="45%" alt="QQ 频道对话">
+</p>
+
+<p align="center">
+  <img src="screenshots/设置面板%20—%20角色列表.png" width="45%" alt="设置面板 - 角色列表">&nbsp;
+  <img src="screenshots/LuCI%20管理面板.png" width="45%" alt="LuCI 管理面板">
+</p>
+
+<p align="center">
+  <img src="screenshots/路由器实物照片.jpg" width="45%" alt="路由器实物">
+</p>
+
+---
+
 ## 快速开始
 
 ### 1. 配置 API Key
