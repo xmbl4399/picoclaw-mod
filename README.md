@@ -340,6 +340,21 @@ DeepSeek 前缀匹配上下文缓存 + 滑动窗口压缩策略：
 
 ---
 
+## SillyTavern 生态参考
+
+本项目兼容 SillyTavern 角色卡格式，以下社区项目可配合使用：
+
+| 项目 | ⭐ | 说明 |
+|------|:--:|------|
+| [TauriTavern](https://github.com/Darkatse/TauriTavern) | 965 | Tauri v2 原生封装 ST 前端，全平台（桌面+移动），Rust 后端免装 Node.js |
+| [ForkSilly](https://github.com/fatsnk/forksilly.doc) | 125 | React Native Android 客户端，兼容 ST 角色卡/世界书/预设/正则 |
+| [NativeTavern](https://github.com/miaoxworld/NativeTavern) | 82 | Flutter 跨平台（iOS+Android），98% ST 核心功能，Rust FFI |
+| [SillyTavern](https://github.com/SillyTavern/SillyTavern) | — | 酒馆官方，可通过 Termux 在 Android 运行（[安装指南](https://docs.sillytavern.app/installation/android-(termux)/)） |
+
+> PicoClaw Mod 是**服务端**角色引擎（路由器常驻），以上项目是**客户端** UI。两者可搭配使用。
+
+---
+
 ## 已知技术限制
 
 - macOS/Windows 完整编译被 matrix CGo/libolm 阻塞（mipsle 交叉编译正常）
