@@ -1,6 +1,6 @@
 # PicoClaw Mod — 为 OpenWrt 深度定制的 PicoClaw
 
-> 兼容 SillyTavern 角色卡 · Galgame 文字冒险 · QQ/TG 多通道 · TTS 语音 · Token 缓存优化  
+> 兼容 SillyTavern 角色卡 · 多端同步会话 · Galgame 文字冒险 · QQ/TG 多通道 · TTS 语音 · Token 缓存优化  
 > 基于 [picoclaw](https://github.com/sipeed/picoclaw) + OpenWrt/KWRT
 
 ---
@@ -130,15 +130,29 @@ chmod +x /etc/init.d/picoclaw
 
 ## ✨ 核心特性
 
-### 多角色会话隔离
+### 全局会话同步（多端共享同一对话记忆）
 
-`session.dimensions` = `["chat", "character"]`。每个角色独立 session，切换角色时上下文不混淆：
+所有 Pico 通道连接（手机、PC、QQ Bot）共享一个固定 session `"default"`，对话历史实时同步：
 
 ```
-chat=pico:xxx & character=kirino → sessionKey_A
-chat=pico:xxx & character=kuroneko → sessionKey_B  (完全隔离)
-chat=pico:xxx & (无角色)           → sessionKey_C  (向后兼容)
+手机 WebUI ──┐
+PC   WebUI ──┼── chat=pico:default ──► 同一 session key ──► 同一对话历史
+QQ   Bot   ──┘
 ```
+
+技术支持：
+- `history.load` / `history.data` WebSocket 协议：页面加载时从后端拉取完整会话历史
+- 消息实时广播：任意端发送消息 → 所有连接端同步显示
+- `PICOCLAW_WEBUI_OVERRIDE` 环境变量：HTML 热加载，无需重编译 Go 二进制
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| `session.dimensions` | `["chat"]` | 仅按会话隔离，角色切换不换对话记忆 |
+| Pico session ID | `"default"` | 固定值，不再随机 UUID |
+
+### QQ Bot 角色切换
+
+QQ 终端通过 LLM 工具调用 `POST /character/clear?id=xxx` 实现角色切换，与 WebUI 共享同一 session。切换角色只更换 SOUL.md（LLM 人设），对话记忆连续。
 
 ### 角色感知 Memory
 
@@ -181,7 +195,8 @@ DeepSeek 前缀匹配上下文缓存 + 滑动窗口压缩策略：
 - 选项按钮可点击，自动填充消息
 - Markdown 渲染 + Token 计数器 + 流式输出
 - PNG 角色导入 (SillyTavern V2/V3)，`<!-- char_id:xxx -->` 自标记
-- 角色栏 pill 按钮，点击切换 + localStorage 历史隔离
+- 角色栏 pill 按钮，点击切换 + SOUL 热编辑 (Ctrl+Enter 保存)
+- **+ 新对话**：清除前端显示 + 后端 ContextManager 会话记忆
 
 ---
 
@@ -260,11 +275,13 @@ DeepSeek 前缀匹配上下文缓存 + 滑动窗口压缩策略：
 - **后端**: Go (PicoClaw gateway, port 18790)
 - **前端**: Vanilla JS + CSS (零框架，单文件 ~36KB)
 - **通信**: WebSocket + `token.picoclaw-router-2026` 子协议
+- **历史同步**: `history.load` / `history.data` 协议 + localStorage 离线兜底
 - **LLM**: DeepSeek API (支持上下文缓存 / prefix cache)
 - **TTS**: MimoTTS → MP3 语音气泡
 - **角色存储**: 服务端 Markdown 文件 + JSON 注册表
-- **会话隔离**: `chat + character` 双维度 session key
-- **聊天历史**: 浏览器 localStorage（按角色隔离）
+- **会话隔离**: 单一 `chat` 维度 session key
+- **聊天历史**: 服务端 SessionManager 持久化 + 浏览器 localStorage 缓存
+- **HTML 热加载**: `PICOCLAW_WEBUI_OVERRIDE` 指向磁盘文件，免重编译
 - **记忆系统**: 文件存储，按角色隔离 + 日记自动轮转
 
 ---
@@ -279,15 +296,17 @@ DeepSeek 前缀匹配上下文缓存 + 滑动窗口压缩策略：
 | `pkg/agent/context_legacy.go` | 滑动窗口压缩（缓存友好） |
 | `pkg/agent/pipeline_llm.go` | 缓存命中率监控日志 |
 | `pkg/agent/instance.go` | SetCharacterID 回调链 |
-| `pkg/health/server.go` | activeCharacter + 端点 |
-| `pkg/channels/base.go` | characterGetter + 注入 |
-| `pkg/channels/pico/pico.go` | sendTTSAsync + @选过滤 |
-| `pkg/channels/qq/qq.go` | 异步 TTS 集成 |
+| `pkg/health/server.go` | activeCharacter + 端点 + ActiveCharacter() |
+| `pkg/health/webui/server.go` | `PICOCLAW_WEBUI_OVERRIDE` 热加载支持 |
+| `pkg/channels/base.go` | characterGetter + Raw 注入 |
+| `pkg/channels/pico/pico.go` | SessionHistoryGetter + handleHistoryLoad + sendTTSAsync |
+| `pkg/channels/pico/protocol.go` | `TypeHistoryLoad` / `TypeHistoryData` |
+| `pkg/gateway/gateway.go` | SessionHistoryGetter 回调注入（含 character_id） |
+| `pkg/channels/qq/qq.go` | 异步 TTS 集成 + GAL 格式转换 |
 | `pkg/channels/qq/init.go` | TTS provider 注入 |
 | `pkg/channels/qq/audio_duration.go` | MP3 帧头解析 |
 | `pkg/providers/protocoltypes/types.go` | UsageInfo 扩展 |
-| `pkg/session/allocator.go` | character 维度 |
-| `pkg/routing/route.go` | character 白名单 |
+| `pkg/session/allocator.go` | character 维度支持 |
 
 ---
 
@@ -363,5 +382,7 @@ DeepSeek 前缀匹配上下文缓存 + 滑动窗口压缩策略：
 
 ---
 
-**版本**: 2026-07-21  
+**版本**: 2026-07-22  
 **运行状态**: ✅ 已验证，路由器 PID 运行正常
+
+> ⚠️ **config.json 中的 API Key / Secret 切勿提交到 GitHub**。路由器配置备份到 `config.router.json`（已在 .gitignore 排除）。
