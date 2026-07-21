@@ -298,7 +298,8 @@ async function addToRegistry(id, name) {
   var reg = await r.json();
   reg.characters = (reg.characters || []).filter(function(c) { return c.id !== id; });
   reg.characters.push({ id: id, name: name, preview: name });
-  reg.active_char = id;
+  // Don't auto-switch to the imported character; keep current active_char
+  if (!reg.active_char) reg.active_char = id;
   await fetch('http://10.0.0.1/cgi-bin/picoclaw_save_registry', {
     method: 'POST', body: JSON.stringify(reg), headers: { 'Content-Type': 'application/json' }
   });
