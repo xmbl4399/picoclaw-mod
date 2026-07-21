@@ -209,6 +209,56 @@ func (c *QQChannel) getChatKind(chatID string) string {
 	return "group"
 }
 
+// QQ GAL format tag regexes — applied in Send() to render readable plain text.
+var qqFormatTagRe = regexp.MustCompile(`^@(?:场景|setting|场景描述)\s+`)
+var qqFormatNarrateRe = regexp.MustCompile(`^@(?:人物|narrate|叙述|旁白)\s+`)
+var qqFormatSayRe = regexp.MustCompile(`^@说\s+`)
+var qqFormatThoughtRe = regexp.MustCompile(`^@心\s+`)
+var qqFormatRecallRe = regexp.MustCompile(`^@(?:回忆|记忆)\s+`)
+var qqFormatHintRe = regexp.MustCompile(`^@提示\s+`)
+var qqFormatOptionRe = regexp.MustCompile(`^@选(\d)\s+`)
+
+// formatForQQ transforms GAL-format text into readable plain text for QQ display.
+// WebUI keeps its rich GAL rendering; this is QQ-specific readability formatting.
+func formatForQQ(content string) string {
+	lines := strings.Split(content, "\n")
+	var out []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case qqFormatTagRe.MatchString(line):
+			text := qqFormatTagRe.ReplaceAllString(line, "")
+			out = append(out, "《"+text+"》")
+		case qqFormatNarrateRe.MatchString(line):
+			text := qqFormatNarrateRe.ReplaceAllString(line, "")
+			out = append(out, "("+text+")")
+		case qqFormatThoughtRe.MatchString(line):
+			text := qqFormatThoughtRe.ReplaceAllString(line, "")
+			out = append(out, "【心想："+text+"】")
+		case qqFormatRecallRe.MatchString(line):
+			text := qqFormatRecallRe.ReplaceAllString(line, "")
+			out = append(out, "---\n【回忆】"+text)
+		case qqFormatHintRe.MatchString(line):
+			text := qqFormatHintRe.ReplaceAllString(line, "")
+			out = append(out, "【提示】"+text)
+		case qqFormatOptionRe.MatchString(line):
+			m := qqFormatOptionRe.FindStringSubmatch(line)
+			if len(m) > 1 {
+				text := qqFormatOptionRe.ReplaceAllString(line, "")
+				out = append(out, "["+m[1]+"] "+text)
+			}
+		default:
+			// @说 may already have been stripped or the line has no known tag
+			line = qqFormatSayRe.ReplaceAllString(line, "")
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
 	if !c.IsRunning() {
 		return nil, channels.ErrNotRunning
@@ -216,9 +266,15 @@ func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 
 	chatKind := c.getChatKind(msg.ChatID)
 
+	// Format GAL-format text for readable QQ display.
+	content := msg.Content
+	if strings.Contains(content, "@场景") || strings.Contains(content, "@说") || strings.Contains(content, "@心") || strings.Contains(content, "@选1") {
+		content = formatForQQ(content)
+	}
+
 	// Build message with content.
 	msgToCreate := &dto.MessageToCreate{
-		Content: msg.Content,
+		Content: content,
 		MsgType: dto.TextMsg,
 	}
 
