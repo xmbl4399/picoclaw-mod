@@ -16,3 +16,6 @@ picoclaw_final
 picoclaw_new_mipsle
 *.exe
 *.bak
+
+# Security (contains API keys)
+config.router.json
