@@ -131,8 +131,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);height:100dv
       <button onclick="document.getElementById('pngImportTranslated').click()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:11px;font-family:var(--font)">🈂 转为中文角色</button>
     </div>
 
-    <h3>📝 当前 SOUL</h3>
-    <pre id="soulPreview" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;max-height:200px;overflow-y:auto;white-space:pre-wrap;color:var(--text2)"></pre>
+    <h3>📝 当前 SOUL <span style="font-size:10px;color:var(--text2)">点击编辑 · Ctrl+Enter 保存</span></h3>
+    <pre id="soulPreview" onclick="editSoul()" title="点击编辑 SOUL" style="cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;max-height:200px;overflow-y:auto;white-space:pre-wrap;color:var(--text2)"></pre>
+    <textarea id="soulEditor" style="display:none;width:100%;background:var(--bg);border:2px solid var(--accent);border-radius:8px;padding:10px;font-size:11px;min-height:150px;max-height:400px;color:var(--text);font-family:monospace;resize:vertical"></textarea>
 
     <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
       <button onclick="resetChar()" style="padding:6px 14px;border-radius:8px;border:1px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:12px;font-family:var(--font)">🔄 恢复默认</button>
@@ -214,7 +215,7 @@ function renderSettingsCharList() {
     d.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:3px;border-radius:8px;background:var(--bg);border:1px solid ' +
       (ch.id === activeCharId ? 'var(--accent)' : 'var(--border)') + ';font-size:12px';
     d.innerHTML = '<span style="flex:1">' + escHtml(ch.name) +
-      ' <span style="color:var(--text2);font-size:10px">' + escHtml(ch.id) + '</span></span>' +
+      ' <span style="color:var(--text2);font-size:10px;cursor:pointer;text-decoration:underline dotted" onclick="switchChar(\'' + escAttr(ch.id) + '\')" title="点击切换角色">' + escHtml(ch.id) + '</span></span>' +
       (ch.id === activeCharId ? '<span style="font-size:10px;color:var(--accent)">当前</span>' : '') +
       (ch.id !== 'picoclaw' ? '<button onclick="delChar(\'' + escAttr(ch.id) + '\')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px" title="删除">🗑</button>' : '');
     c.appendChild(d);
@@ -446,6 +447,72 @@ function openSettings() {
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings() { document.getElementById('settings-overlay').classList.remove('open'); }
+
+async function switchChar(id) {
+  if (id === activeCharId) return;
+  // Save current history before switching
+  saveHistory();
+  // Load character card from server
+  try {
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_char?id=' + encodeURIComponent(id));
+    if (!r.ok) throw new Error('not found');
+    var card = await r.json();
+    var prompt = card.content || '';
+    // Write SOUL.md and notify backend
+    await fetch('character/active', {
+      method: 'POST', body: JSON.stringify({character_id: id}),
+      headers: { 'Content-Type': 'application/json' }
+    });
+    await fetch('http://10.0.0.1/cgi-bin/picoclaw_soul', { method: 'POST', body: prompt });
+  } catch(e) { console.error('Switch failed', e); }
+  // Update state
+  activeCharId = id;
+  soulContent = '';
+  characters.sort(function(a, b) { return a.id === activeCharId ? -1 : b.id === activeCharId ? 1 : 0; });
+  messages = loadHistory();
+  renderCharBar();
+  renderMessages();
+  updateHeader();
+  loadSoulContent();
+  closeSettings();
+}
+
+function editSoul() {
+  var pre = document.getElementById('soulPreview');
+  var ta = document.getElementById('soulEditor');
+  pre.style.display = 'none';
+  ta.value = soulContent;
+  ta.style.display = 'block';
+  ta.focus();
+  ta.onkeydown = function(e) {
+    if (e.ctrlKey && e.key === 'Enter') { saveSoul(); e.preventDefault(); }
+    if (e.key === 'Escape') { cancelSoul(); e.preventDefault(); }
+  };
+  ta.onblur = function() { saveSoul(); };
+}
+
+function saveSoul() {
+  var ta = document.getElementById('soulEditor');
+  var pre = document.getElementById('soulPreview');
+  var content = ta.value;
+  ta.style.display = 'none';
+  pre.style.display = 'block';
+  pre.textContent = content || '(清空)';
+  soulContent = content;
+  fetch('http://10.0.0.1/cgi-bin/picoclaw_soul', {
+    method: 'POST', body: content,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+  }).then(function(r) { return r.json(); }).then(function(j) {
+    if (j.status === 'ok') showToast('✅ SOUL 已保存');
+  }).catch(function() { showToast('⚠ SOUL 保存失败'); });
+}
+
+function cancelSoul() {
+  var ta = document.getElementById('soulEditor');
+  var pre = document.getElementById('soulPreview');
+  ta.style.display = 'none';
+  pre.style.display = 'block';
+}
 
 // ===== WebSocket =====
 function connect() {
