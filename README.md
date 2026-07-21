@@ -1,7 +1,7 @@
-# PicoClaw Mod — AI 角色扮演路由器
+# PicoClaw Mod — 为 OpenWrt 深度定制的 PicoClaw
 
-> 基于 [picoclaw](https://github.com/sipeed/picoclaw) + OpenWrt/KWRT。  
-> 多角色 Galgame 扮演 · QQ/TG/Pico 多通道 · TTS 语音 · Token 缓存优化。
+> 兼容 SillyTavern 角色卡 · Galgame 文字冒险 · QQ/TG 多通道 · TTS 语音 · Token 缓存优化  
+> 基于 [picoclaw](https://github.com/sipeed/picoclaw) + OpenWrt/KWRT
 
 ---
 
