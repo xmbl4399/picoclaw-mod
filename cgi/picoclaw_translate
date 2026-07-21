@@ -1,45 +1,95 @@
-#!/bin/sh
-TEXT=$(cat -)
-if [ -z "$TEXT" ]; then
-  printf "Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: empty body"
-  exit 0
-fi
+#!/usr/bin/lua
+-- Read stdin
+local text = io.read("*a")
+if not text or text == "" then
+  io.write("Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: empty body")
+  return
+end
 
-API_KEY=""
-if [ -f /mnt/sda1/picoclaw.sh ]; then
-  API_KEY=$(grep PICOCLAW_MODEL_KEY= /mnt/sda1/picoclaw.sh | head -1)
-  API_KEY="${API_KEY#*=}"
-  API_KEY="${API_KEY%\"}"
-  API_KEY="${API_KEY#\"}"
-fi
-if [ -z "$API_KEY" ]; then
-  printf "Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: no api key"
-  exit 0
-fi
+-- Read API key
+local apikey = ""
+local f = io.open("/mnt/sda1/picoclaw.sh", "r")
+if f then
+  for line in f:lines() do
+    local k = line:match('PICOCLAW_MODEL_KEY="(.*)"')
+    if k then apikey = k; break end
+  end
+  f:close()
+end
+if apikey == "" then
+  io.write("Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: no api key")
+  return
+end
 
-PROMPT="将以下角色卡文本翻译为自然口语化的中文。保留所有格式、编号、标点符号。仅输出译文。"
+-- JSON-escape a string
+local function esc(s)
+  s = s:gsub("\\", "\\\\")
+  s = s:gsub('"', '\\"')
+  s = s:gsub("\r", "")
+  s = s:gsub("\n", "\\n")
+  s = s:gsub("\t", "\\t")
+  return s
+end
 
-# JSON-escape: backslash, double-quote, newlines -> \n between lines
-# BusyBox awk: use [\\] not \\ in regex; no trailing \n
-T=$(printf "%s" "$TEXT" | awk '{gsub(/[\\]/,"\\\\"); gsub(/"/,"\\\""); if(NR>1) printf "\\\\n"; printf "%s",$0}' | tr -d '\r')
+-- Build JSON body
+local prompt = "将以下角色卡文本翻译为自然口语化的中文。保留所有格式、编号、标点符号。仅输出译文。"
+local body = string.format(
+  '{"model":"deepseek-chat","messages":[{"role":"system","content":"%s"},{"role":"user","content":"%s"}],"temperature":0.3,"max_tokens":4096}',
+  esc(prompt), esc(text)
+)
 
-BODY="{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"system\",\"content\":\"${PROMPT}\"},{\"role\":\"user\",\"content\":\"${T}\"}],\"temperature\":0.3,\"max_tokens\":4096}"
+-- Write body to temp file (avoid shell quoting issues with -d @file)
+local tmp = "/tmp/translate_lua.tmp"
+local tf = io.open(tmp, "w")
+tf:write(body)
+tf:close()
 
-RESULT=$(curl -s --connect-timeout 30 --max-time 90 \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${API_KEY}" \
-  -d "${BODY}" https://api.deepseek.com/chat/completions 2>/dev/null)
+-- Call DeepSeek API
+local cmd = string.format(
+  'curl -s --connect-timeout 30 --max-time 120 -H "Content-Type: application/json" -H "Authorization: Bearer %s" -d @%s https://api.deepseek.com/chat/completions 2>/dev/null',
+  apikey, tmp
+)
+local pipe = io.popen(cmd)
+local result = pipe:read("*a")
+pipe:close()
+os.remove(tmp)
 
-if [ -z "$RESULT" ]; then
-  printf "Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: timeout"
-  exit 0
-fi
+if not result or result == "" then
+  io.write("Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: timeout")
+  return
+end
 
-CT=$(echo "$RESULT" | awk -F'"content":"' '{print $2}' | awk -F'"' '{print $1}')
-if [ -z "$CT" ]; then
-  printf "Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: empty"
-  exit 0
-fi
+-- Extract content field from JSON, properly handling \"
+local start = result:find('"content":"')
+if not start then
+  io.write("Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: empty")
+  return
+end
+start = start + 11
+local parts = {}
+local i = start
+while i <= #result do
+  local c = result:sub(i, i)
+  if c == "\\" then
+    table.insert(parts, c)
+    i = i + 1
+    if i <= #result then
+      table.insert(parts, result:sub(i, i))
+      i = i + 1
+    end
+  elseif c == '"' then
+    break
+  else
+    table.insert(parts, c)
+    i = i + 1
+  end
+end
+local ct = table.concat(parts)
 
-printf "Access-Control-Allow-Origin: *\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
-printf "%s" "${CT}"
+if ct == "" then
+  io.write("Access-Control-Allow-Origin: *\r\nContent-Type: text/plain\r\n\r\nERROR: empty")
+  return
+end
+
+io.write("Access-Control-Allow-Origin: *\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n")
+io.write(ct)
