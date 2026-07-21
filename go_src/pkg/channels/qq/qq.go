@@ -218,43 +218,64 @@ var qqFormatRecallRe = regexp.MustCompile(`^@(?:回忆|记忆)\s+`)
 var qqFormatHintRe = regexp.MustCompile(`^@提示\s+`)
 var qqFormatOptionRe = regexp.MustCompile(`^@选(\d)\s+`)
 
-// formatForQQ transforms GAL-format text into readable plain text for QQ display.
+// formatForQQ transforms GAL-format text into readable plain text for QQ display,
+// with blank lines between logical blocks (scene / thought / recall / options).
 // WebUI keeps its rich GAL rendering; this is QQ-specific readability formatting.
 func formatForQQ(content string) string {
 	lines := strings.Split(content, "\n")
 	var out []string
+	prevGroup := ""
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
+		group := ""
+		var formatted string
 		switch {
 		case qqFormatTagRe.MatchString(line):
 			text := qqFormatTagRe.ReplaceAllString(line, "")
-			out = append(out, "《"+text+"》")
-		case qqFormatNarrateRe.MatchString(line):
-			text := qqFormatNarrateRe.ReplaceAllString(line, "")
-			out = append(out, "("+text+")")
+			formatted = "《" + text + "》"
+			group = "A" // scene — standalone block
 		case qqFormatThoughtRe.MatchString(line):
 			text := qqFormatThoughtRe.ReplaceAllString(line, "")
-			out = append(out, "【心想："+text+"】")
+			formatted = "【心想：" + text + "】"
+			group = "C" // thought — perspective shift
 		case qqFormatRecallRe.MatchString(line):
 			text := qqFormatRecallRe.ReplaceAllString(line, "")
-			out = append(out, "---\n【回忆】"+text)
+			formatted = "【回忆】" + text
+			group = "D" // recall / narration
 		case qqFormatHintRe.MatchString(line):
 			text := qqFormatHintRe.ReplaceAllString(line, "")
-			out = append(out, "【提示】"+text)
+			formatted = "【提示】" + text
+			group = "E" // hint
+		case qqFormatNarrateRe.MatchString(line):
+			text := qqFormatNarrateRe.ReplaceAllString(line, "")
+			formatted = "(" + text + ")"
+			group = "B" // narration/action — flows with dialogue
 		case qqFormatOptionRe.MatchString(line):
 			m := qqFormatOptionRe.FindStringSubmatch(line)
 			if len(m) > 1 {
 				text := qqFormatOptionRe.ReplaceAllString(line, "")
-				out = append(out, "["+m[1]+"] "+text)
+				formatted = "[" + m[1] + "] " + text
+				group = "F" // options
 			}
 		default:
-			// @说 may already have been stripped or the line has no known tag
 			line = qqFormatSayRe.ReplaceAllString(line, "")
-			out = append(out, line)
+			formatted = line
+			group = "B" // dialogue — flows with narration
 		}
+		if formatted == "" {
+			continue
+		}
+		// Insert blank line between different logical blocks
+		// (except: B flows together, both with itself and across B→A boundary)
+		if prevGroup != "" && prevGroup != group {
+			// B → B: no break. Different group → break.
+			out = append(out, "")
+		}
+		out = append(out, formatted)
+		prevGroup = group
 	}
 	return strings.Join(out, "\n")
 }
