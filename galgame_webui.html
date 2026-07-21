@@ -150,6 +150,7 @@ let messages = [];
 let sendCounter = 0;
 let ws = null, reconnectTimer = null;
 var _pendingClear = false;
+var _historyLoaded = false;
 
 // GAL stream buffer
 var galBuffer = {};
@@ -260,7 +261,9 @@ async function switchChar(id) {
     activeCharId = id;
     soulContent = prompt;
     characters.sort(function(a, b) { return a.id === activeCharId ? -1 : b.id === activeCharId ? 1 : 0; });
+    _historyLoaded = false;
     messages = loadHistory();
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'history.load' }));
     renderCharBar();
     renderMessages();
     updateHeader();
@@ -404,6 +407,10 @@ function connect() {
       setConnected(true);
       setInputEnabled(true);
       document.getElementById('msgInput').focus();
+      // Load session history from backend (sync across tabs)
+      if (activeCharId && !_historyLoaded) {
+        ws.send(JSON.stringify({ type: 'history.load' }));
+      }
     };
     ws.onmessage = function(e) {
       try { handleMessage(JSON.parse(e.data)); } catch(_) {}
@@ -442,6 +449,25 @@ function handleMessage(msg) {
     case 'typing.stop': stopTyping(); break;
     case 'media.create': handleAudio(msg); break;
     case 'pong': break;
+    case 'history.data':
+      if (!_historyLoaded) {
+        var hmsgs = (msg.payload && msg.payload.messages) || [];
+        if (hmsgs.length > 0) {
+          messages = hmsgs.map(function(m, i) {
+            return {
+              id: 'hist-' + i + '-' + Date.now(),
+              role: m.role,
+              content: m.content,
+              modelName: getActiveCharName(),
+              time: ''
+            };
+          });
+          _historyLoaded = true;
+          renderMessages();
+          saveHistory(); // cache for offline fallback
+        }
+      }
+      break;
   }
 }
 
@@ -677,10 +703,13 @@ document.addEventListener('DOMContentLoaded', async function() {
   updateHeader();
   loadCharacters();
   connect();
-  // Load saved history for active character
+  // Fallback: if WS doesn't load history within 3s, use localStorage
   setTimeout(function() {
-    if (activeCharId) { messages = loadHistory(); renderMessages(); }
-  }, 1000);
+    if (activeCharId && !_historyLoaded) {
+      messages = loadHistory();
+      if (messages.length > 0) renderMessages();
+    }
+  }, 3000);
 
   document.getElementById('msgInput').addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
