@@ -1,0 +1,13 @@
+#!/bin/sh
+printf 'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n'
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+  printf 'Content-Type: text/plain\r\n\r\nok'
+  exit 0
+fi
+printf 'Content-Type: application/json\r\n\r\n'
+if [ "$REQUEST_METHOD" != "POST" ]; then
+  printf '{"error":"use POST"}'
+  exit 0
+fi
+cat - > /root/.picoclaw/workspace/characters/_registry.json
+printf '{"status":"saved"}'

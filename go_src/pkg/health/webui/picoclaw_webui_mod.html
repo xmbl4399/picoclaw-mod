@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PicoClaw Roleplay</title>
+<style>
+:root {
+  --bg: #09090b; --card: #18181b; --border: #27272a;
+  --text: #fafafa; --text2: #a1a1aa; --muted: #27272a;
+  --user-bubble: #8b5cf6; --accent: #a78bfa;
+  --green: #22c55e; --red: #ef4444;
+  --radius: 12px; --font: system-ui, -apple-system, sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+
+#header{display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0}
+#header .dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0}
+#header .dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}
+#header .spacer{flex:1}
+#header button{background:none;border:1px solid var(--border);color:var(--text2);padding:5px 12px;border-radius:8px;cursor:pointer;font-size:12px;transition:all .15s;font-family:var(--font)}
+#header button:hover{border-color:var(--accent);color:var(--text)}
+#header button.accent{background:var(--accent);color:#09090b;border-color:var(--accent);font-weight:500}
+#header .char-name{font-size:13px;color:var(--accent);font-weight:500}
+
+#char-bar{display:flex;align-items:center;gap:6px;padding:6px 20px;background:var(--bg);border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0}
+.char-pill{display:flex;align-items:center;gap:4px;padding:4px 12px;border-radius:16px;border:1px solid var(--border);cursor:pointer;font-size:11px;white-space:nowrap;transition:all .15s;color:var(--text2)}
+.char-pill:hover{border-color:var(--accent);color:var(--text)}
+.char-pill.active{background:var(--accent);color:#09090b;border-color:var(--accent)}
+.char-pill .avatar{width:16px;height:16px;border-radius:50%;background:var(--muted);display:flex;align-items:center;justify-content:center;font-size:10px}
+
+#msgList{flex:1;overflow-y:auto;padding:24px 20px;display:flex;flex-direction:column;gap:16px}
+#msgList .empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:14px;opacity:.6}
+
+.msg-row.user{align-self:flex-end;max-width:70%}
+.msg-row.user .bubble{background:var(--user-bubble);color:#fff;border-radius:var(--radius) var(--radius) 2px var(--radius);padding:10px 16px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.msg-row.user .time{font-size:10px;color:var(--text2);text-align:right;margin-top:4px}
+
+.msg-row.assistant{align-self:flex-start;width:100%}
+.msg-row.assistant .head{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:11px;color:var(--text2)}
+.msg-row.assistant .head .name{color:var(--accent);font-weight:500}
+.msg-row.assistant .bubble{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.msg-row.assistant .bubble strong{color:var(--accent)}
+.msg-row.assistant .bubble code{background:var(--muted);padding:2px 6px;border-radius:4px;font-size:12px}
+.msg-row.assistant .bubble pre{background:var(--muted);padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;margin:8px 0;white-space:pre-wrap}
+.choice-btn{display:block;margin:4px 0;padding:6px 12px;background:var(--muted);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:13px;text-align:left;width:100%;font-family:var(--font);transition:all .15s}
+.choice-btn:hover{background:var(--accent);color:#09090b;border-color:var(--accent)}.choice-btn:disabled{opacity:.4;cursor:default}
+
+/* Typing */
+.typing-row{align-self:flex-start;display:flex;gap:8px;align-items:center;padding:10px 16px;color:var(--text2);font-size:13px}
+.typing-dots{display:flex;gap:3px}
+.typing-dots span{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:bounce .8s infinite}
+.typing-dots span:nth-child(2){animation-delay:.15s}
+.typing-dots span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.3}30%{transform:translateY(-6px);opacity:1}}
+
+#inputBar{display:flex;gap:8px;padding:12px 20px;background:var(--card);border-top:1px solid var(--border);flex-shrink:0;align-items:flex-end}
+#inputBar textarea{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-size:14px;outline:none;resize:none;min-height:42px;max-height:120px;font-family:var(--font);line-height:1.4}
+#inputBar textarea:focus{border-color:var(--accent)}
+#inputBar textarea:disabled{opacity:.3}
+#inputBar button{padding:10px 20px;border-radius:var(--radius);border:none;background:var(--accent);color:#09090b;cursor:pointer;font-size:13px;font-weight:500;font-family:var(--font);white-space:nowrap}
+#inputBar button:hover{opacity:.9}
+#inputBar button:disabled{opacity:.3;cursor:default}
+
+/* Settings */
+#settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99;display:none;justify-content:center;align-items:center}
+#settings-overlay.open{display:flex}
+#settings-panel{background:var(--card);border:1px solid var(--border);border-radius:16px;width:480px;max-width:95vw;max-height:85vh;overflow-y:auto;padding:24px}
+#settings-panel h2{font-size:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+#settings-panel h2 button{background:none;border:none;color:var(--text2);cursor:pointer;font-size:20px}
+#settings-panel h3{font-size:13px;color:var(--accent);margin:12px 0 6px}
+#settings-panel label{display:block;font-size:11px;color:var(--text2);margin-bottom:4px}
+
+/* GAL Format */
+.gal-scene{color:var(--accent);font-weight:600;font-size:15px;margin:8px 0 4px}
+.gal-character{color:var(--accent);font-weight:500;font-size:13px;margin:6px 0 2px}
+.gal-dialogue{padding-left:12px;border-left:2px solid var(--accent);margin:4px 0}
+.gal-inner-thought{color:var(--text2);font-style:italic;margin:4px 0;font-size:13px}
+.gal-narration{color:var(--text2);margin:4px 0}
+.gal-flashback{color:var(--text2);opacity:.8;margin:4px 0;font-size:13px}
+.gal-notice{background:var(--muted);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:13px;color:var(--accent)}
+.gal-option{display:block;width:100%;margin:4px 0;padding:8px 12px;background:var(--muted);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:13px;text-align:left;font-family:var(--font);transition:all .15s}
+.gal-option:hover{background:var(--accent);color:#09090b;border-color:var(--accent)}
+.gal-option:disabled{opacity:.4;cursor:default}
+
+/* Toast */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);padding:10px 24px;border-radius:24px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast.show{opacity:1}
+
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span class="dot" id="statusDot"></span>
+  <span class="char-name" id="charNameDisplay">...</span>
+  <a href="http://10.0.0.1:18790/" target="_blank" title="全屏打开" style="font-size:11px;color:#555;text-decoration:none;margin-left:8px;border:1px solid #333;padding:1px 8px;border-radius:4px;transition:all .15s" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='#555';this.style.borderColor='#333'">全屏</a>
+  <span class="spacer"></span>
+  <button onclick="newSession()">+ 新对话</button>
+  <button class="accent" onclick="openSettings()">⚙ 设置</button>
+</div>
+
+<div id="char-bar"></div>
+
+<div id="msgList"><div class="empty">发送消息开始对话</div></div>
+
+<div class="typing-row" id="typing" style="display:none">
+  <div class="typing-dots"><span></span><span></span><span></span></div>
+  思考中...
+</div>
+
+<div id="inputBar">
+  <textarea id="msgInput" placeholder="输入消息..." rows="1" disabled></textarea>
+  <button id="sendBtn" disabled onclick="send()">发送</button>
+</div>
+
+<div id="settings-overlay">
+  <div id="settings-panel">
+    <h2>⚙ 设置 <button onclick="closeSettings()">✕</button></h2>
+
+    <h3>🎭 角色卡列表</h3>
+    <div id="charListUI" style="margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px">
+      <input type="file" id="pngImport" accept=".png" onchange="importPNG(this)" style="display:none">
+      <button onclick="document.getElementById('pngImport').click()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:11px;font-family:var(--font)">📥 导入 PNG 角色卡</button>
+    </div>
+
+    <h3>📝 当前 SOUL</h3>
+    <pre id="soulPreview" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;max-height:200px;overflow-y:auto;white-space:pre-wrap;color:var(--text2)"></pre>
+
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+      <button onclick="resetChar()" style="padding:6px 14px;border-radius:8px;border:1px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:12px;font-family:var(--font)">🔄 恢复默认</button>
+      <button onclick="closeSettings()" style="padding:6px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:12px;font-family:var(--font)">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ===== Settings =====
+let characters = [];
+let activeCharId = '';
+let soulContent = '';
+let messages = [];
+let sendCounter = 0;
+let ws = null, reconnectTimer = null;
+
+// GAL stream buffer
+var galBuffer = {};
+var galDebounceTimers = {};
+
+const WS_URL = 'ws://10.0.0.1:18790/pico/ws';
+const TOKEN = 'picoclaw-router-2026';
+const HIST_KEY = 'pico-history';
+
+// ===== Characters =====
+async function loadCharacters() {
+  try {
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_chars');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    characters = data.characters || [];
+    activeCharId = data.active_char || '';
+    if (activeCharId) {
+      characters.sort(function(a, b) { return a.id === activeCharId ? -1 : b.id === activeCharId ? 1 : 0; });
+    }
+    renderCharBar();
+    updateHeader();
+    await loadSoulContent();
+  } catch(e) {
+    console.error('load chars failed:', e);
+    showToast('⚠️ 无法加载角色列表');
+  }
+}
+
+async function loadSoulContent() {
+  try {
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_char?id=' + (activeCharId || 'picoclaw'));
+    soulContent = r.ok ? await r.text() : 'I am PicoClaw, a helpful AI assistant.';
+    if (soulContent === 'NOT_FOUND') soulContent = 'I am PicoClaw, a helpful AI assistant.';
+  } catch(e) {
+    soulContent = 'I am PicoClaw, a helpful AI assistant.';
+  }
+}
+
+function renderCharBar() {
+  var bar = document.getElementById('char-bar');
+  if (!characters.length) { bar.innerHTML = ''; return; }
+  bar.innerHTML = characters.map(function(c) {
+    var active = c.id === activeCharId;
+    var initials = (c.name || c.id).substring(0, 2);
+    return '<div class="char-pill' + (active ? ' active' : '') + '" onclick="switchChar(\'' + escAttr(c.id) + '\')">' +
+      '<span class="avatar">' + escHtml(initials) + '</span>' + escHtml(c.name) + '</div>';
+  }).join('');
+}
+
+function updateHeader() {
+  var ch = characters.find(function(c) { return c.id === activeCharId; });
+  document.getElementById('charNameDisplay').textContent = ch ? ch.name : 'PicoClaw';
+}
+
+function renderSettingsCharList() {
+  var c = document.getElementById('charListUI');
+  c.innerHTML = '';
+  characters.forEach(function(ch) {
+    var d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:3px;border-radius:8px;background:var(--bg);border:1px solid ' +
+      (ch.id === activeCharId ? 'var(--accent)' : 'var(--border)') + ';font-size:12px';
+    d.innerHTML = '<span style="flex:1">' + escHtml(ch.name) +
+      ' <span style="color:var(--text2);font-size:10px">' + escHtml(ch.id) + '</span></span>' +
+      (ch.id === activeCharId ? '<span style="font-size:10px;color:var(--accent)">当前</span>' : '') +
+      (ch.id !== 'picoclaw' ? '<button onclick="delChar(\'' + escAttr(ch.id) + '\')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px" title="删除">🗑</button>' : '');
+    c.appendChild(d);
+  });
+}
+
+// ===== Character switch with history =====
+function historyKey(charId) { return HIST_KEY + '-' + (charId || 'default'); }
+
+function saveHistory() {
+  if (!activeCharId || !messages.length) return;
+  try {
+    localStorage.setItem(historyKey(activeCharId), JSON.stringify(messages));
+  } catch(e) {}
+}
+
+function loadHistory() {
+  try {
+    var raw = localStorage.getItem(historyKey(activeCharId));
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+async function switchChar(id) {
+  if (id === activeCharId) return;
+  saveHistory();
+  showToast('🔄 切换中...');
+  try {
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_char?id=' + encodeURIComponent(id));
+    if (!r.ok) throw new Error('not found');
+    var prompt = await r.text();
+    if (prompt === 'NOT_FOUND') throw new Error('角色文件不存在');
+
+    var ch = characters.find(function(c) { return c.id === id; });
+    var name = ch ? ch.name : id;
+
+    // Step 1: /character/clear
+    await fetch('http://10.0.0.1:18790/character/clear?name=' + encodeURIComponent(name) + '&id=' + encodeURIComponent(id), {
+      method: 'POST', body: prompt, headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+    // Step 2: write SOUL.md (preserve rules section)
+    // Read current SOUL, split at marker, keep rules tail
+    var rulesTail = await loadRulesTail();
+    var markedPrompt = "<!-- char_id:" + id + " -->\n" + prompt + rulesTail;
+    await fetch("http://10.0.0.1/cgi-bin/picoclaw_soul", { method: "POST", body: markedPrompt });
+
+    activeCharId = id;
+    soulContent = prompt;
+    characters.sort(function(a, b) { return a.id === activeCharId ? -1 : b.id === activeCharId ? 1 : 0; });
+    messages = loadHistory();
+    renderCharBar();
+    renderMessages();
+    updateHeader();
+    // Step 3: persist registry
+    try {
+      var regR = await fetch('http://10.0.0.1/cgi-bin/picoclaw_chars');
+      if (regR.ok) { var reg = await regR.json(); reg.active_char = id; }
+      await fetch('http://10.0.0.1/cgi-bin/picoclaw_save_registry', { method: 'POST', body: JSON.stringify(reg) });
+    } catch(e) {}
+    showToast('🎭 ' + name);
+  } catch(e) { showToast('❌ 切换失败: ' + e.message); }
+}
+
+async function resetChar() {
+  saveHistory();
+  showToast('🔄 恢复默认...');
+  try {
+    var defaultPrompt = 'I am PicoClaw, a helpful AI assistant.';
+    await fetch('http://10.0.0.1:18790/character/clear?name=PicoClaw&id=picoclaw', {
+      method: 'POST', body: defaultPrompt, headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+    // Step 2: write SOUL.md (preserve rules section)
+    var markedPrompt = "<!-- char_id:picoclaw -->\n" + defaultPrompt + (await loadRulesTail());
+    await fetch('http://10.0.0.1/cgi-bin/picoclaw_soul', { method: 'POST', body: markedPrompt });
+    activeCharId = 'picoclaw';
+    soulContent = defaultPrompt;
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_chars');
+    if (r.ok) { var data = await r.json(); characters = data.characters || []; }
+    characters.sort(function(a, b) { return a.id === activeCharId ? -1 : b.id === activeCharId ? 1 : 0; });
+    messages = loadHistory();
+    renderCharBar();
+    renderMessages();
+    updateHeader();
+    closeSettings();
+    showToast('✅ 已恢复默认');
+  } catch(e) { showToast('❌ 重置失败'); }
+}
+
+// ===== Character CRUD =====
+async function addToRegistry(id, name) {
+  var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_chars');
+  var reg = await r.json();
+  reg.characters = (reg.characters || []).filter(function(c) { return c.id !== id; });
+  reg.characters.push({ id: id, name: name, preview: name });
+  reg.active_char = id;
+  await fetch('http://10.0.0.1/cgi-bin/picoclaw_save_registry', {
+    method: 'POST', body: JSON.stringify(reg), headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function delChar(id) {
+  if (!confirm('确定删除角色 ' + id + '？')) return;
+  try {
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_chars');
+    var reg = await r.json();
+    var wasActive = (reg.active_char === id);
+    reg.characters = (reg.characters || []).filter(function(c) { return c.id !== id; });
+    if (wasActive) reg.active_char = 'picoclaw';
+    await fetch('http://10.0.0.1/cgi-bin/picoclaw_save_registry', {
+      method: 'POST', body: JSON.stringify(reg), headers: { 'Content-Type': 'application/json' }
+    });
+    if (wasActive) {
+      var dRules = await loadRulesTail();
+      await fetch('http://10.0.0.1/cgi-bin/picoclaw_soul', { method: 'POST', body: "<!-- char_id:picoclaw -->\nI am PicoClaw, a helpful AI assistant." + dRules });
+    }
+    await loadCharacters();
+    renderSettingsCharList();
+    renderCharBar();
+  } catch(e) { showToast('❌ 删除失败'); }
+}
+
+// ===== PNG Import (SillyTavern-compatible) =====
+function parsePngCard(bytes) {
+  var u8 = new Uint8Array(4), u32 = new Uint32Array(u8.buffer);
+  if (bytes.length < 8 || bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4E
+      || bytes[3] !== 0x47 || bytes[4] !== 0x0D || bytes[5] !== 0x0A
+      || bytes[6] !== 0x1A || bytes[7] !== 0x0A) return null;
+  var idx = 8;
+  while (idx < bytes.length) {
+    u8[3] = bytes[idx++]; u8[2] = bytes[idx++]; u8[1] = bytes[idx++]; u8[0] = bytes[idx++];
+    var len = u32[0];
+    var name = String.fromCharCode(bytes[idx], bytes[idx+1], bytes[idx+2], bytes[idx+3]); idx += 4;
+    var data = bytes.slice(idx, idx + len); idx += len + 4;
+    if (name === 'tEXt') {
+      var nullPos = -1, i;
+      for (i = 0; i < data.length; i++) { if (data[i] === 0) { nullPos = i; break; } }
+      if (nullPos < 0) continue;
+      var keyword = '', j;
+      for (j = 0; j < nullPos; j++) keyword += String.fromCharCode(data[j]);
+      var b64 = '';
+      for (j = nullPos + 1; j < data.length; j++) b64 += String.fromCharCode(data[j]);
+      try {
+        var json = JSON.parse(atob(b64));
+        if (keyword.toLowerCase() === 'ccv3' || keyword.toLowerCase() === 'chara') return json;
+      } catch(e) {}
+    }
+  }
+  return null;
+}
+
+async function importPNG(input) {
+  var file = input.files[0]; if (!file) return;
+  try {
+    var buf = new Uint8Array(await file.arrayBuffer());
+    var card = parsePngCard(buf);
+    if (!card) { showToast('❌ 未识别到角色卡数据'); input.value = ''; return; }
+    var d = card.data || card;
+    var name = d.name || card.name || file.name.replace(/\.png$/i, '');
+    var prompt = '';
+    if (d.description) prompt = d.description;
+    if (d.personality) prompt += '\n' + d.personality;
+    if (d.scenario) prompt += '\nScenario: ' + d.scenario;
+    if (d.first_mes) prompt += '\nFirst Message: ' + d.first_mes;
+    if (d.mes_example) prompt += '\nExample: ' + d.mes_example;
+    if (d.system_prompt) prompt = d.system_prompt;
+    if (!prompt.trim()) prompt = 'You are ' + name + '.';
+
+    var id = 'char_' + Date.now();
+    var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_create_char?id=' + encodeURIComponent(id), {
+      method: 'POST', body: prompt,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+    var ar = await r.json();
+    if (ar.status === 'created') {
+      await addToRegistry(id, name);
+      showToast('✅ 导入: ' + name);
+      await loadCharacters();
+      renderSettingsCharList();
+      renderCharBar();
+    } else throw new Error(ar.error || 'failed');
+  } catch(e) { showToast('❌ 导入失败: ' + e.message); }
+  input.value = '';
+}
+
+// ===== Settings UI =====
+function openSettings() {
+  renderSettingsCharList();
+  document.getElementById('soulPreview').textContent = soulContent || '(加载中...)';
+  document.getElementById('settings-overlay').classList.add('open');
+}
+function closeSettings() { document.getElementById('settings-overlay').classList.remove('open'); }
+
+// ===== WebSocket =====
+function connect() {
+  if (ws) try { ws.close(); } catch(e) {}
+  try {
+    ws = new WebSocket(WS_URL, 'token.' + TOKEN);
+    ws.onopen = function() {
+      setConnected(true);
+      setInputEnabled(true);
+      document.getElementById('msgInput').focus();
+    };
+    ws.onmessage = function(e) {
+      try { handleMessage(JSON.parse(e.data)); } catch(_) {}
+    };
+    ws.onclose = function() {
+      setConnected(false);
+      setInputEnabled(false);
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 5000);
+    };
+    ws.onerror = function() { ws.close(); };
+  } catch(e) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 5000);
+  }
+}
+
+function setConnected(on) {
+  document.getElementById('statusDot').className = 'dot' + (on ? ' ok' : '');
+}
+function setInputEnabled(on) {
+  document.getElementById('msgInput').disabled = !on;
+  document.getElementById('sendBtn').disabled = !on;
+}
+
+// ===== Messages =====
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'message.create': addOrUpdateBot(msg, false); break;
+    case 'message.update': addOrUpdateBot(msg, true); break;
+    case 'message.stream': handleStream(msg); break;
+    case 'message.stream_end': handleStreamEnd(msg); break;
+    case 'message.delete': removeMsg(msg.payload && msg.payload.message_id || msg.id); break;
+    case 'error': showToast('❌ ' + ((msg.payload && msg.payload.message) || '错误')); stopTyping(); break;
+    case 'typing.start': startTyping(); break;
+    case 'typing.stop': stopTyping(); break;
+    case 'pong': break;
+    case 'media.create': handleAudio(msg); break;
+    case 'media.create': handleAudio(msg); break;
+  }
+}
+
+function addOrUpdateBot(msg, isUpdate) {
+  var payload = msg.payload || {};
+  var mid = payload.message_id || msg.id;
+  var content = payload.content || '';
+  var kind = payload.kind || 'normal';
+  if (kind === 'thought' || kind === 'tool_calls') return;
+  if (msg.type === 'message.stream' || payload.stream) return;
+  if (!content && !isUpdate) return;
+  var ch = characters.find(function(c) { return c.id === activeCharId; });
+  var nm = ch ? ch.name : 'PicoClaw';
+  var ts = new Date(msg.timestamp || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+  if (isUpdate) {
+    var ex = findMsg(mid);
+    if (ex) { ex.content = content; ex.modelName = nm; } else {
+      messages.push({ id: mid, role: 'assistant', content: content, modelName: nm, time: ts });
+    }
+    if (!payload.placeholder && !payload.choices) stopTyping();
+  } else {
+    var idx = messages.findIndex(function(m) { return m.id === mid; });
+    var obj = { id: mid, role: 'assistant', content: content, modelName: nm, time: ts };
+    if (idx >= 0) messages[idx] = obj; else messages.push(obj);
+    if (!payload.placeholder && !payload.choices) stopTyping();
+  }
+  saveHistory();
+  renderMessages();
+}
+
+function findMsg(id) { return messages.find(function(m) { return m.id === id; }); }
+
+function removeMsg(id) { messages = messages.filter(function(m) { return m.id !== id; }); renderMessages(); }
+
+function startTyping() { document.getElementById('typing').style.display = 'flex'; scrollBottom(); }
+function stopTyping() { document.getElementById('typing').style.display = 'none'; }
+
+function renderMessages() {
+  var c = document.getElementById('msgList');
+  if (!messages.length) { c.innerHTML = '<div class="empty">发送消息开始对话</div>'; return; }
+  c.innerHTML = '';
+  messages.forEach(function(m) {
+    var row = document.createElement('div');
+    if (m.role === 'user') {
+      row.className = 'msg-row user';
+      row.innerHTML = '<div class="bubble">' + escHtml(m.content) + '</div><div class="time">' + (m.time || '') + '</div>';
+    } else {
+      row.className = 'msg-row assistant';
+      row.innerHTML = '<div class="head"><span class="name">' + escHtml(m.modelName || getActiveCharName()) + '</span><span>' + (m.time || '') + '</span></div>' +
+        '<div class="bubble">' + renderContent(m.content, m.kind) + '</div>';
+    }
+    c.appendChild(row);
+  });
+  scrollBottom();
+}
+
+function renderGal(text) {
+  if (!text) return '';
+  var lines = text.split('\n');
+  var html = '';
+  var optCount = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (!line.trim()) { html += '<br>'; continue; }
+    var m = line.match(/^@(场景|人物|说|心|旁白|回忆|提示|选([1-3]))\s+(.*)/);
+    if (!m) {
+      html += '<p style="margin:4px 0">' + renderMd(line) + '</p>';
+      continue;
+    }
+    var type = m[1];
+    var optIdx = m[2];
+    var body = (m[3] || '').trim();
+    if (!body) continue;
+    var rendered = renderMd(body);
+    switch (type) {
+      case '场景': html += '<div class="gal-scene">' + rendered + '</div>'; break;
+      case '人物': html += '<div class="gal-character">' + rendered + '</div>'; break;
+      case '说':   html += '<div class="gal-dialogue">' + rendered + '</div>'; break;
+      case '心':   html += '<div class="gal-inner-thought">💭 ' + rendered + '</div>'; break;
+      case '旁白': html += '<div class="gal-narration">' + rendered + '</div>'; break;
+      case '回忆': html += '<div class="gal-flashback">' + rendered + '</div>'; break;
+      case '提示': html += '<div class="gal-notice">' + rendered + '</div>'; break;
+      default:
+        if (optIdx) {
+          optCount++;
+          html += '<button class="gal-option" data-optidx="' + optIdx + '" onclick="sendChoice(this.textContent.trim())">' + rendered + '</button>';
+        }
+    }
+  }
+  return html;
+}
+
+function isGalFormat(text) {
+  return /^@(场景|人物|说|心|旁白|回忆|提示|选[1-3])\s/.test(text.trim());
+}
+
+function renderContent(text, format) {
+  if (format === 'gal') return renderGal(text);
+  if (isGalFormat(text)) return renderGal(text);
+  return renderMd(text);
+}
+
+function renderMd(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/\n/g, '<br>')
+    .replace(/【(\d)】(.+?)【\1】/g, '<button class="gal-option" onclick="sendChoice(this.textContent.trim())">$2</button>');
+}
+
+function handleStream(msg) {
+  var id = msg.id;
+  var payload = msg.payload || {};
+  var content = payload.content || '';
+  var format = payload.format || (payload.kind === 'gal' ? 'gal' : 'markdown');
+  if (!id || !content) return;
+
+  if (format === 'gal' || isGalFormat(content)) {
+    if (!galBuffer[id]) galBuffer[id] = '';
+    galBuffer[id] += content;
+
+    var lastLine = galBuffer[id].split('\n').pop();
+    var buf = galBuffer[id];
+    var incomplete = /^@(场景|人物|说|心|旁白|回忆|提示|选[1-3])\s?$/.test(lastLine);
+    if (incomplete) buf = galBuffer[id].slice(0, -(lastLine.length));
+
+    var ex = findMsg(id);
+    if (ex) { ex.content = buf; } else {
+      messages.push({ id: id, role: 'assistant', content: buf, modelName: getActiveCharName(), time: '' });
+    }
+
+    clearTimeout(galDebounceTimers[id]);
+    galDebounceTimers[id] = setTimeout(function() { renderMessages(); }, 50);
+    return;
+  }
+
+  // Fallback: incremental update for text
+  var ex = findMsg(id);
+  if (ex) { ex.content = (ex.content || '') + content; attachGalIfNeeded(ex); }
+  else { messages.push({ id: id, role: 'assistant', content: content, modelName: getActiveCharName(), time: '' }); }
+  renderMessages();
+}
+
+function handleStreamEnd(msg) {
+  var id = msg.id;
+  if (!id) return;
+  var ex = findMsg(id);
+  if (ex && galBuffer[id] !== undefined) {
+    ex.content = galBuffer[id];
+    delete galBuffer[id];
+    clearTimeout(galDebounceTimers[id]);
+    delete galDebounceTimers[id];
+  }
+  stopTyping();
+  renderMessages();
+}
+
+function attachGalIfNeeded(msgObj) {
+  if (!msgObj.kind && isGalFormat(msgObj.content)) msgObj.kind = 'gal';
+}
+
+function scrollBottom() {
+  requestAnimationFrame(function() {
+    document.getElementById('msgList').scrollTop = document.getElementById('msgList').scrollHeight;
+  });
+}
+
+// ===== Send =====
+function send() {
+  var input = document.getElementById('msgInput');
+  var text = input.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  var ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  var id = 'msg-' + (++sendCounter) + '-' + Date.now();
+  messages.push({ id: id + '-user', role: 'user', content: text, time: ts });
+  ws.send(JSON.stringify({ type: 'message.send', id: id, payload: { content: text } }));
+  saveHistory();
+  renderMessages();
+  input.value = ''; input.style.height = 'auto';
+  document.getElementById('msgInput').focus();
+}
+
+async function newSession() {
+  showToast("🧹 清空记忆...");
+  messages = [];
+  try { localStorage.setItem(historyKey(activeCharId), "[]"); } catch(e) {}
+  try {
+    var name = getActiveCharName();
+    await fetch("http://10.0.0.1:18790/character/clear?name=" + encodeURIComponent(name) + "&id=" + encodeURIComponent(activeCharId), {
+      method: "POST", body: soulContent, headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
+    showToast("✅ 记忆已清空");
+  } catch(e) {
+    showToast("⚠️ 界面已清空，但 AI 侧清除失败");
+  }
+  renderMessages();
+}
+
+function getActiveCharName() {
+  var ch = characters.find(function(c) { return c.id === activeCharId; });
+  return ch ? ch.name : 'PicoClaw';
+}
+
+function sendChoice(text) {
+  var input = document.getElementById('msgInput');
+  input.value = text;
+  send();
+  input.blur();
+}
+
+// ===== Utils =====
+function escHtml(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { if (!s) return ''; return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+async function loadRulesTail() {
+    try {
+        var r = await fetch('http://10.0.0.1/cgi-bin/picoclaw_rules');
+        if (!r.ok) return '';
+        var rules = await r.text();
+        if (!rules.trim()) return '';
+        return '\nReply Rules（永久段）\n' + rules.trimStart();
+    } catch(e) {
+        return '';
+    }
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(function() { t.classList.remove('show'); }, 2500);
+}
+
+// ===== Audio playback for TTS
+function handleAudio(msg) {
+  var payload = msg.payload || {};
+  var mid = payload.message_id;
+  var ref = payload.ref || '';
+  if (!mid || !ref) return;
+  var url = ref.replace(/^media:\/\//, '');
+  if (url.indexOf('/') === 0) {
+    url = window.location.origin + url;
+  } else if (url.indexOf('http') !== 0) {
+    url = '/pico/media/' + url;
+  }
+  var msgEl = document.querySelector('[data-mid="' + mid + '"]');
+  if (!msgEl) {
+    setTimeout(function() {
+      msgEl = document.querySelector('[data-mid="' + mid + '"]');
+      if (!msgEl) return;
+      addAudioBtnToMsg(msgEl, url);
+    }, 500);
+    return;
+  }
+  addAudioBtnToMsg(msgEl, url);
+}
+function addAudioBtnToMsg(msgEl, url) {
+  var btn = document.createElement('button');
+  btn.className = 'audio-btn';
+  btn.innerHTML = '\uD83D\uDD0A \u64AD\u653E';
+  btn.onclick = function() {
+    var a = new Audio(url);
+    btn.innerHTML = '\uD83D\uDD0A \u64AD\u653E\u4E2D...';
+    btn.disabled = true;
+    a.onended = function() { btn.innerHTML = '\uD83D\uDD0A \u91CD\u64AD'; btn.disabled = false; };
+    a.onerror = function() { btn.innerHTML = '\u274C \u64AD\u653E\u5931\u8D25'; btn.disabled = false; };
+    a.play();
+  };
+  var bubble = msgEl.querySelector('.bubble') || msgEl;
+  bubble.appendChild(btn);
+}
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', async function() {
+  updateHeader();
+  loadCharacters();
+  connect();
+  // Load saved history for active character
+  setTimeout(function() {
+    if (activeCharId) { messages = loadHistory(); renderMessages(); }
+  }, 1000);
+
+  document.getElementById('msgInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  document.getElementById('msgInput').addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+  document.getElementById('settings-overlay').addEventListener('click', function(e) {
+    if (e.target === document.getElementById('settings-overlay')) closeSettings();
+  });
+  // Auto-save history before leaving
+  window.addEventListener('beforeunload', function() { saveHistory(); });
+});
+</script>
+</body>
+</html>

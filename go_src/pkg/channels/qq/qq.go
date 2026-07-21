@@ -25,6 +25,7 @@ import (
 	"github.com/tencent-connect/botgo/token"
 	"golang.org/x/oauth2"
 
+	"github.com/sipeed/picoclaw/pkg/audio/tts"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -42,6 +43,10 @@ const (
 	typingSeconds = 10
 	bytesPerMiB   = 1024 * 1024
 )
+
+// Dialogue extraction regex patterns for TTS (same as PicoChannel).
+var qqDialogueLineRe = regexp.MustCompile(`@说\s+`)
+var qqDialogueStripRe = regexp.MustCompile(`^[^：]+：(.+)$`)
 
 type qqAPI interface {
 	WS(ctx context.Context, params map[string]string, body string) (*dto.WebsocketAP, error)
@@ -81,6 +86,8 @@ type QQChannel struct {
 	// done is closed on Stop to shut down the dedup janitor.
 	done     chan struct{}
 	stopOnce sync.Once
+
+	ttsProvider tts.TTSProvider
 }
 
 func NewQQChannel(bc *config.Channel, cfg *config.QQSettings, messageBus *bus.MessageBus) (*QQChannel, error) {
@@ -260,6 +267,12 @@ func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 	if sentMsg == nil {
 		return nil, nil
 	}
+
+	// Async TTS: extract dialogue lines and send as QQ voice message.
+	if c.ttsProvider != nil {
+		go c.sendTTSAsync(context.Background(), msg.ChatID, msg.Content)
+	}
+
 	return []string{sentMsg.ID}, nil
 }
 
@@ -366,6 +379,65 @@ func (c *QQChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessage)
 	return messageIDs, nil
 }
 
+// sendTTSAsync extracts dialogue lines from GAL-format content and sends TTS voice
+// asynchronously via QQ voice message. It matches "@说 角色名：对话" or "角色名：对话" format.
+func (c *QQChannel) sendTTSAsync(ctx context.Context, chatID, content string) {
+	if ctx == nil || c.ttsProvider == nil {
+		return
+	}
+
+	// Extract dialogue text (strip character name + colon, keep only the spoken line)
+	var dialogueParts []string
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		// Skip option lines (@选1, @选2, ...)
+		if strings.HasPrefix(line, "@选") {
+			continue
+		}
+		// Strip @说 prefix if present
+		line = qqDialogueLineRe.ReplaceAllString(line, "")
+		// Match "角色名：对话内容" → extract "对话内容"
+		if m := qqDialogueStripRe.FindStringSubmatch(line); len(m) > 1 {
+			dialogueParts = append(dialogueParts, strings.TrimSpace(m[1]))
+		}
+	}
+	if len(dialogueParts) == 0 {
+		return
+	}
+	// Merge multi-line dialogue into one TTS synthesis
+	text := strings.Join(dialogueParts, "。")
+
+	store := c.GetMediaStore()
+	if store == nil {
+		return
+	}
+
+	ref, err := tts.SynthesizeAndStore(ctx, c.ttsProvider, store, text, "", "qq", chatID)
+	if err != nil {
+		logger.WarnCF("qq", "TTS synthesis failed", map[string]any{"error": err.Error()})
+		return
+	}
+
+	// Send as QQ voice message
+	mediaMsg := bus.OutboundMediaMessage{
+		Channel: "qq",
+		ChatID:  chatID,
+		Parts: []bus.MediaPart{
+			{
+				Type:        "audio",
+				Ref:         ref,
+				ContentType: "audio/mpeg",
+			},
+		},
+	}
+	if _, err := c.SendMedia(ctx, mediaMsg); err != nil {
+		logger.WarnCF("qq", "Failed to send TTS voice", map[string]any{
+			"chat_id": chatID,
+			"error":   err.Error(),
+		})
+	}
+}
+
 type qqMediaUpload struct {
 	FileType   uint64 `json:"file_type"`
 	URL        string `json:"url,omitempty"`
@@ -433,12 +505,7 @@ func (c *QQChannel) buildMediaUpload(part bus.MediaPart) (*qqMediaUpload, error)
 		payload.FileName = qqUploadFilename(part, resolved, payload.FileType)
 		return payload, nil
 	}
-	// For TTS-sourced audio, skip duration check and send as voice directly.
-	if meta.Source == "tool:send_tts" {
-		payload.FileType = qqFileType("audio")
-	} else {
-		payload.FileType = qqFileType(c.outboundMediaType(part, resolved))
-	}
+	payload.FileType = qqFileType(c.outboundMediaType(part, resolved))
 	payload.FileName = qqUploadFilename(part, resolved, payload.FileType)
 
 	if limitBytes := c.maxBase64FileSizeBytes(); limitBytes > 0 {

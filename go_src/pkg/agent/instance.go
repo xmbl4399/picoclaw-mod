@@ -140,10 +140,7 @@ func NewAgentInstance(
 	sessions := initSessionStore(sessionsDir)
 
 	mcpDiscoveryActive := agentHasDiscoverableMCPServers(cfg, agentMCPServerAllowlist)
-	logger.InfoCF("agent", "Creating agent instance with character prompt", map[string]any{
-		"char_len": len(cfg.Agents.Defaults.CharacterPrompt),
-	})
-	contextBuilder := NewContextBuilder(workspace, cfg.Agents.Defaults.CharacterPrompt).
+	contextBuilder := NewContextBuilder(workspace).
 		WithToolDiscovery(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseBM25,
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
@@ -504,6 +501,15 @@ func initSessionStore(dir string) session.SessionStore {
 	}
 
 	return session.NewJSONLBackend(store)
+}
+
+// SetCharacterID updates the agent's character context.
+// This affects memory isolation (memory/characters/{id}/) and RULES.md awareness.
+// Pass "" to reset to default (no character).
+func (ai *AgentInstance) SetCharacterID(id string) {
+	if ai.ContextBuilder != nil {
+		ai.ContextBuilder.WithCharacterID(id)
+	}
 }
 
 func expandHome(path string) string {

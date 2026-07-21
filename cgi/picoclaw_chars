@@ -1,0 +1,3 @@
+#!/bin/sh
+printf "Access-Control-Allow-Origin: *\r\nContent-Type: application/json\r\n\r\n"
+cat /root/.picoclaw/workspace/characters/_registry.json

@@ -35,16 +35,13 @@ func providerFromModelConfig(mc *config.ModelConfig) TTSProvider {
 
 	switch protocol {
 	case "mimo":
-		var mimoOpts MimoTTSOptions
-		if mc != nil && mc.ExtraBody != nil {
+		voice := ""
+		if mc.ExtraBody != nil {
 			if v, ok := mc.ExtraBody["voice"].(string); ok {
-				mimoOpts.Voice = strings.TrimSpace(v)
-			}
-			if f, ok := mc.ExtraBody["format"].(string); ok {
-				mimoOpts.Format = strings.TrimSpace(f)
+				voice = strings.TrimSpace(v)
 			}
 		}
-		return NewMimoTTSProvider(mc.APIKey(), providers.ResolveAPIBase(mc), modelID, mc.Proxy, mimoOpts)
+		return NewMimoTTSProvider(mc.APIKey(), providers.ResolveAPIBase(mc), modelID, mc.Proxy, voice)
 	default:
 		return NewOpenAITTSProviderWithOptions(
 			mc.APIKey(),

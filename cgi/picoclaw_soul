@@ -1,0 +1,45 @@
+#!/bin/sh
+printf 'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n'
+
+# Handle CORS preflight
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+  printf 'Content-Type: text/plain\r\n\r\nok'
+  exit 0
+fi
+
+SOUL="/root/.picoclaw/workspace/SOUL.md"
+
+# GET: return the full SOUL.md content
+if [ "$REQUEST_METHOD" = "GET" ]; then
+  printf 'Content-Type: text/plain; charset=utf-8\r\n\r\n'
+  if [ -f "$SOUL" ]; then
+    cat "$SOUL"
+  else
+    printf 'I am PicoClaw, a helpful AI assistant.'
+  fi
+  exit 0
+fi
+
+# POST: write new character card + preserve reply rules
+if [ "$REQUEST_METHOD" = "POST" ]; then
+  printf 'Content-Type: application/json\r\n\r\n'
+  CHAR_CARD=$(cat)
+
+  # Extract reply rules: everything after the first line that starts with "Reply Rules"
+  REPLY_RULES=""
+  if [ -f "$SOUL" ]; then
+    REPLY_RULES=$(sed -n '/^Reply Rules（永久段）/,$p' "$SOUL")
+  fi
+
+  # Write: character card + blank line + reply rules
+  {
+    printf '%s\n' "$CHAR_CARD"
+    printf '\n'
+    printf '%s\n' "$REPLY_RULES"
+  } > "$SOUL"
+
+  printf '{"status":"written"}'
+  exit 0
+fi
+
+printf 'Content-Type: text/plain\r\n\r\n{"error":"unsupported method"}'

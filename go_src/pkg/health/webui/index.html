@@ -1,1342 +1,287 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PicoClaw Chat - 路由器 AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PicoClaw</title>
 <style>
 :root {
-  --bg:#1a1a2e; --card:#16213e; --accent:#0f3460; --accent2:#1a6fb5;
-  --text:#e0e0e0; --text2:#8899aa; --bubble-user:#1a5276; --bubble-bot:#2c3e50;
-  --input:#0d1b2a; --border:#1e3a5f; --green:#27ae60; --red:#e74c3c;
-  --thought:#5a6a7a; --code-bg:#0d1117; --tool:#506070;
-  --radius:14px; --transition:.2s;
+  --bg: #09090b; --card: #18181b; --border: #27272a;
+  --text: #fafafa; --text2: #a1a1aa; --muted: #27272a;
+  --user-bubble: #8b5cf6; --accent: #a78bfa;
+  --green: #22c55e; --red: #ef4444;
+  --radius: 12px; --font: system-ui, -apple-system, sans-serif;
 }
-body.light {
-  --bg:#f5f7fa; --card:#fff; --accent:#3b82f6; --accent2:#2563eb;
-  --text:#1a1a2e; --text2:#667788; --bubble-user:#dbeafe; --bubble-bot:#f1f5f9;
-  --input:#eef2f6; --border:#dde4ed; --code-bg:#f0f0f0;
-  --thought:#8899aa; --tool:#99aabb;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background:var(--bg); color:var(--text); height:100dvh; display:flex; flex-direction:column; transition:background var(--transition),color var(--transition); }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 
-/* Header */
-header { background:var(--card); padding:8px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-shrink:0; }
-header h1 { font-size:14px; font-weight:600; }
-.status { width:8px; height:8px; border-radius:50%; background:#555; flex-shrink:0; transition:background .3s; }
-.status.ok { background:var(--green); box-shadow:0 0 6px var(--green); }
-.status.err { background:var(--red); }
-header .info { font-size:10px; color:var(--text2); margin-left:auto; }
-header button { background:none; border:1px solid var(--border); color:var(--text2); padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; transition:all var(--transition); }
-header button:hover { border-color:var(--accent2); color:var(--text); }
-header button.act { background:var(--accent2); color:#fff; border-color:var(--accent2); }
+#header{display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0}
+#header .dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0}
+#header .dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}
+#header .title{font-size:13px;color:var(--text2);font-weight:500}
+#header .spacer{flex:1}
+#header button{background:none;border:1px solid var(--border);color:var(--text2);padding:5px 12px;border-radius:8px;cursor:pointer;font-size:12px;transition:all .15s;font-family:var(--font)}
+#header button:hover{border-color:var(--accent);color:var(--text)}
 
-/* Messages */
-#messages { flex:1; overflow-y:auto; padding:16px 12px; display:flex; flex-direction:column; gap:8px; scroll-behavior:smooth; }
-.msg { max-width:92%; padding:10px 14px; border-radius:var(--radius); line-height:1.7; word-break:break-word; position:relative; animation: fadeIn .2s ease; }
-@keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
-.msg.user { align-self:flex-end; background:var(--bubble-user); border-bottom-right-radius:4px; }
-.msg.bot { align-self:flex-start; background:var(--bubble-bot); border-bottom-left-radius:4px; }
-.msg.thought { color:var(--thought); font-style:italic; background:transparent; padding:4px 14px; font-size:12.5px; }
-.msg.tool { color:var(--tool); font-size:12px; font-family:'SF Mono','Fira Code',monospace; background:transparent; padding:2px 14px; }
-.msg.system { text-align:center; font-size:11px; color:var(--text2); padding:3px 8px; max-width:100%; background:none; }
-.msg .meta { display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:10px; opacity:0.4; }
-.msg .copy-btn { background:none; border:none; color:inherit; opacity:0; cursor:pointer; font-size:11px; padding:0 4px; transition:opacity var(--transition); }
-.msg:hover .copy-btn { opacity:0.6; }
-.msg .copy-btn:hover { opacity:1; }
+#msgList{flex:1;overflow-y:auto;padding:24px 20px;display:flex;flex-direction:column;gap:16px}
+#msgList .empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:14px;opacity:.6}
 
-/* Markdown rendered content */
-.msg.bot h1,.msg.bot h2,.msg.bot h3,.msg.bot h4 { margin:8px 0 4px; font-weight:600; }
-.msg.bot h1 { font-size:1.3em; }
-.msg.bot h2 { font-size:1.15em; }
-.msg.bot h3 { font-size:1.05em; }
-.msg.bot p { margin:4px 0; }
-.msg.bot ul,.msg.bot ol { margin:4px 0; padding-left:20px; }
-.msg.bot li { margin:2px 0; }
-.msg.bot a { color:var(--accent2); text-decoration:underline; }
-.msg.bot blockquote { border-left:3px solid var(--accent2); padding-left:12px; margin:8px 0; opacity:0.85; }
-.msg.bot hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
-.msg.bot del { opacity:0.5; }
-.msg.bot table { border-collapse:collapse; width:100%; margin:8px 0; font-size:12px; }
-.msg.bot th,.msg.bot td { border:1px solid var(--border); padding:5px 10px; text-align:left; }
-.msg.bot th { background:var(--input); font-weight:600; }
-.msg.bot img { max-width:100%; border-radius:8px; margin:4px 0; }
-.msg.bot pre { background:var(--code-bg); border-radius:8px; padding:10px 12px; margin:8px 0; overflow-x:auto; font-size:12px; line-height:1.45; position:relative; }
-.msg.bot code { background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:0.9em; }
-.msg.bot pre code { background:none; padding:0; }
-.msg.bot pre .lang-tag { position:absolute; top:4px; right:8px; font-size:10px; color:var(--text2); }
+.msg-row.user{align-self:flex-end;max-width:80%}
+.msg-row.user .bubble{background:var(--user-bubble);color:#fff;border-radius:var(--radius) var(--radius) 2px var(--radius);padding:10px 16px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.msg-row.user .time{font-size:10px;color:var(--text2);text-align:right;margin-top:4px}
 
-/* Input */
-.input-area { padding:8px 12px; background:var(--card); border-top:1px solid var(--border); display:flex; gap:8px; flex-shrink:0; align-items:center; }
-.input-area textarea { flex:1; padding:10px 14px; border-radius:20px; border:1px solid var(--border); background:var(--input); color:var(--text); font-size:14px; outline:none; resize:none; min-height:40px; max-height:120px; font-family:inherit; line-height:1.4; }
-.input-area textarea:focus { border-color:var(--accent2); }
-.input-area button { padding:8px 16px; border-radius:18px; border:none; background:var(--accent); color:#fff; cursor:pointer; font-size:13px; font-weight:500; transition:all var(--transition); white-space:nowrap; }
-.input-area button:hover { background:var(--accent2); }
-.input-area button:disabled { opacity:.4; cursor:default; }
-#typing { align-self:flex-start; padding:6px 14px; font-size:12px; color:var(--thought); display:none; }
+.msg-row.assistant{align-self:flex-start;width:100%}
+.msg-row.assistant .head{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:11px;color:var(--text2)}
+.msg-row.assistant .head .name{color:var(--accent);font-weight:500}
+.msg-row.assistant .bubble{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.msg-row.assistant .bubble strong{color:var(--accent)}
+.msg-row.assistant .bubble code{background:var(--muted);padding:2px 6px;border-radius:4px;font-size:12px}
+.msg-row.assistant .bubble pre{background:var(--muted);padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;margin:8px 0;white-space:pre-wrap}
+.msg-row.assistant .bubble pre code{background:none;padding:0}
 
-/* Token usage bar */
-#token-bar-wrap { height:3px; background:var(--border); flex-shrink:0; }
-#token-bar { height:100%; background:var(--green); transition:width .3s, background .3s; width:0; }
-#token-bar.warn { background:#f0a040; }
-#token-bar.danger { background:var(--red); }
-#token-info { font-size:10px; color:var(--text2); text-align:right; padding:2px 14px; flex-shrink:0; }
+.typing-row{align-self:flex-start;display:flex;gap:8px;align-items:center;padding:10px 16px;color:var(--text2);font-size:13px}
+.typing-dots{display:flex;gap:3px}
+.typing-dots span{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:bounce .8s infinite}
+.typing-dots span:nth-child(2){animation-delay:.15s}
+.typing-dots span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.3}30%{transform:translateY(-6px);opacity:1}}
 
-/* Settings panel */
-#settings-overlay { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:99; display:none; }
-#settings-overlay.open { display:block; }
-#settings-panel { position:fixed; right:0; top:0; bottom:0; width:340px; max-width:90vw; background:var(--card); z-index:100; padding:20px; overflow-y:auto; transform:translateX(100%); transition:transform .25s ease; border-left:1px solid var(--border); }
-#settings-panel.open { transform:translateX(0); }
-#settings-panel h2 { font-size:16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; }
-#settings-panel h2 button { background:none; border:none; color:var(--text2); cursor:pointer; font-size:20px; padding:0 4px; }
-#settings-panel label { display:block; font-size:12px; color:var(--text2); margin-bottom:4px; margin-top:14px; font-weight:500; }
-#settings-panel input[type="text"],
-#settings-panel input[type="password"] { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--input); color:var(--text); font-size:13px; outline:none; font-family:'SF Mono','Fira Code',monospace; }
-#settings-panel input:focus { border-color:var(--accent2); }
-#settings-panel .toggle-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; }
-#settings-panel .toggle-row span { font-size:13px; }
-.toggle { position:relative; width:40px; height:22px; background:var(--border); border-radius:11px; cursor:pointer; transition:background var(--transition); flex-shrink:0; }
-.toggle.on { background:var(--green); }
-.toggle::after { content:''; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; transition:transform var(--transition); }
-.toggle.on::after { transform:translateX(18px); }
-#settings-panel button.btn { width:100%; margin-top:10px; padding:10px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:500; transition:opacity var(--transition); }
-#settings-panel button.btn:hover { opacity:.85; }
-.btn-primary { background:var(--accent2); color:#fff; }
-.btn-danger { background:var(--red); color:#fff; }
-.btn-secondary { background:var(--border); color:var(--text); }
-.health-info { margin-top:14px; padding:10px; background:var(--input); border-radius:8px; font-size:12px; font-family:'SF Mono','Fira Code',monospace; line-height:1.6; }
+#inputBar{display:flex;gap:8px;padding:12px 20px;background:var(--card);border-top:1px solid var(--border);flex-shrink:0;align-items:flex-end}
+#inputBar textarea{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-size:14px;outline:none;resize:none;min-height:42px;max-height:120px;font-family:var(--font);line-height:1.4}
+#inputBar textarea:focus{border-color:var(--accent)}
+#inputBar textarea:disabled{opacity:.3}
+#inputBar button{padding:10px 20px;border-radius:var(--radius);border:none;background:var(--accent);color:#09090b;cursor:pointer;font-size:13px;font-weight:500;font-family:var(--font);white-space:nowrap}
+#inputBar button:hover{opacity:.9}
+#inputBar button:disabled{opacity:.3;cursor:default}
 
-/* Toast */
-#toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--green); color:#fff; padding:8px 18px; border-radius:20px; font-size:13px; z-index:200; opacity:0; transition:opacity .3s; pointer-events:none; }
-#toast.show { opacity:1; }
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);padding:10px 24px;border-radius:24px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast.show{opacity:1}
 
-/* Tabs */
-.tab-btn { flex:1; padding:6px 2px; border:1px solid var(--border); background:var(--input); color:var(--text2); cursor:pointer; font-size:11px; border-radius:6px; text-align:center; transition:all var(--transition); }
-.tab-btn.active { background:var(--accent2); color:#fff; border-color:var(--accent2); }
-#settings-panel textarea:focus { border-color:var(--accent2); }
-#settings-panel input[type="number"] { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--input); color:var(--text); font-size:13px; outline:none; }
-#settings-panel input[type="number"]:focus { border-color:var(--accent2); }
-#settings-panel select:focus { border-color:var(--accent2); }
-
-/* Session list in settings */
-.sess-item { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; margin:4px 0; background:var(--input); border-radius:8px; cursor:pointer; font-size:12px; transition:background var(--transition); }
-.sess-item:hover { background:var(--border); }
-.sess-item.active { border:1px solid var(--accent2); }
-.sess-item .sess-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sess-item .sess-time { font-size:10px; color:var(--text2); margin:0 8px; }
-.sess-item .sess-del { background:none; border:none; color:var(--red); cursor:pointer; font-size:14px; padding:0 4px; opacity:0; transition:opacity var(--transition); }
-.sess-item:hover .sess-del { opacity:1; }
-
-/* Character cards */
-.char-item { display:flex; align-items:center; gap:10px; padding:10px; margin:4px 0; background:var(--input); border-radius:10px; cursor:pointer; transition:all var(--transition); }
-.char-item:hover { background:var(--border); }
-.char-item.active { border:1px solid var(--accent2); background:var(--accent); }
-.char-avatar { width:36px; height:36px; border-radius:50%; background:var(--border); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; overflow:hidden; }
-.char-avatar img { width:100%; height:100%; object-fit:cover; }
-.char-info { flex:1; min-width:0; }
-.char-name { font-size:13px; font-weight:600; }
-.char-desc { font-size:10px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.char-del { background:none; border:none; color:var(--red); cursor:pointer; font-size:14px; padding:0 4px; opacity:0; transition:opacity var(--transition); }
-.char-item:hover .char-del { opacity:1; }
-#charPreview { margin-top:10px; padding:10px; background:var(--code-bg); border-radius:8px; font-size:11px; line-height:1.6; max-height:150px; overflow-y:auto; display:none; white-space:pre-wrap; }
-
-/* Header hidden in embed mode */
-body.embed header { display:none; }
-body.embed #messages { padding-top:8px; }
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 </style>
 </head>
 <body>
 
-<header id="mainHeader">
-  <div class="status" id="status"></div>
-  <h1>🦞 PicoClaw</h1>
-  <select id="modelSelect" onchange="switchModel(this.value)" style="background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;max-width:130px;outline:none;cursor:pointer;">
-    <option value="">加载中...</option>
-  </select>
-  <select id="charSelect" onchange="switchChar(this.value)" style="background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;max-width:110px;outline:none;cursor:pointer;">
-    <option value="">默认</option>
-  </select>
-  <span class="info" id="headerInfo">路由器 AI</span>
-  <button onclick="newSession()" title="新对话">+</button>
-  <select id="charSelect" onchange="switchChar()" style="background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;max-width:100px;outline:none;cursor:pointer;margin-left:4px;"><option value="">默认</option></select>
-  <button onclick="openSettings()" title="设置">⚙️</button>
-</header>
-
-<div id="messages"></div>
-<div id="typing">🤔 思考中...</div>
-
-<div id="token-bar-wrap"><div id="token-bar"></div></div>
-<div id="token-info"></div>
-
-<div class="input-area">
-  <textarea id="msgInput" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" rows="1" autofocus disabled></textarea>
-  <button id="sendBtn" onclick="send()" disabled>发送</button>
+<div id="header">
+  <span class="dot" id="statusDot"></span>
+  <span class="title">PicoClaw</span>
+  <span class="spacer"></span>
+  <button onclick="newSession()">+ 新对话</button>
 </div>
 
-<div id="settings-overlay" onclick="closeSettings()"></div>
-<div id="settings-panel">
-  <h2>⚙️ 设置 <button onclick="closeSettings()">✕</button></h2>
+<div id="msgList"><div class="empty">发送消息开始对话</div></div>
 
-  <div style="display:flex;gap:4px;margin-bottom:16px;">
-    <button class="tab-btn active" onclick="switchTab('chars')">角色</button>
-    <button class="tab-btn" onclick="switchTab('conn')">连接</button>
-    <button class="tab-btn" onclick="switchTab('model')">模型</button>
-    <button class="tab-btn" onclick="switchTab('agent')">行为</button>
-    <button class="tab-btn" onclick="switchTab('tools')">工具</button>
-    <button class="tab-btn" onclick="switchTab('sessions')">对话</button>
-  </div>
+<div class="typing-row" id="typing" style="display:none">
+  <div class="typing-dots"><span></span><span></span><span></span></div>
+  思考中...
+</div>
 
-  <!-- Tab: Connection -->
-  <div class="tab" id="tab-conn">
-    <label>WebSocket 地址</label>
-    <input type="text" id="cfgUrl" placeholder="ws://10.0.0.1:18790/pico/ws">
-    <label>Token</label>
-    <input type="password" id="cfgToken" placeholder="your-token-here">
-    <div class="toggle-row"><span>浅色主题</span><div class="toggle" id="cfgTheme" onclick="toggleTheme(this)"></div></div>
-    <div class="toggle-row"><span>跟随系统</span><div class="toggle" id="cfgThemeSys" onclick="toggleThemeSys(this)"></div></div>
-    <div class="toggle-row"><span>显示思考过程</span><div class="toggle on" id="cfgThinking" onclick="toggleSetting('showThinking',this)"></div></div>
-    <div class="toggle-row"><span>显示工具调用</span><div class="toggle on" id="cfgToolCalls" onclick="toggleSetting('showToolCalls',this)"></div></div>
-    <button class="btn btn-primary" onclick="applyAndReconnect()">💾 保存并重连</button>
-    <button class="btn btn-secondary" onclick="fetchHealth()" style="margin-top:6px;">📊 检测网关状态</button>
-    <div class="health-info" id="healthInfo" style="display:none;"></div>
-  </div>
-
-  <!-- Tab: Model -->
-  <div class="tab" id="tab-model" style="display:none;">
-    <label>当前模型</label>
-    <select id="settingsModelSelect" onchange="switchModelFromSettings(this.value)" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;margin-bottom:12px;"></select>
-
-    <label>模型 ID (API 调用名)</label>
-    <input type="text" id="cfgModelId" placeholder="deepseek-v4-flash" style="margin-bottom:8px;">
-
-    <label>API 地址</label>
-    <input type="text" id="cfgApiBase" placeholder="https://api.deepseek.com/v1" style="margin-bottom:8px;">
-
-    <label>Provider</label>
-    <input type="text" id="cfgProvider" placeholder="deepseek" readonly style="margin-bottom:12px;opacity:0.6;">
-
-    <div style="display:flex;gap:8px;margin-bottom:8px;">
-      <div style="flex:1;">
-        <label>最大 Token</label>
-        <input type="number" id="cfgMaxTokens" placeholder="32768" min="256" max="131072">
-      </div>
-      <div style="flex:1;">
-        <label>上下文窗口</label>
-        <input type="number" id="cfgContextWindow" placeholder="131072" min="1024" max="1048576">
-      </div>
-    </div>
-
-    <label>Temperature <span style="font-weight:400;opacity:0.5;" id="cfgTempVal">1.0</span></label>
-    <input type="range" id="cfgTemperature" min="0" max="2" step="0.1" value="1" oninput="document.getElementById('cfgTempVal').textContent=this.value" style="width:100%;margin-bottom:8px;">
-
-    <label>Thinking 等级</label>
-    <select id="cfgThinkingLevel" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;margin-bottom:8px;">
-      <option value="">默认 (跟随模型)</option>
-      <option value="off">关闭</option>
-      <option value="low">低</option>
-      <option value="medium">中</option>
-      <option value="high">高</option>
-      <option value="xhigh">极高</option>
-      <option value="adaptive">自适应</option>
-    </select>
-
-    <div style="display:flex;gap:8px;margin-bottom:8px;">
-      <div style="flex:1;">
-        <label>请求超时(秒)</label>
-        <input type="number" id="cfgReqTimeout" placeholder="0" min="0" max="600">
-      </div>
-      <div style="flex:1;">
-        <label>RPM 限制</label>
-        <input type="number" id="cfgRPM" placeholder="0" min="0" max="10000">
-      </div>
-    </div>
-
-    <div style="display:flex;gap:8px;margin-bottom:12px;">
-      <div style="flex:1;">
-        <label>LLM 重试次数</label>
-        <input type="number" id="cfgLLMRetries" placeholder="2" min="0" max="20">
-      </div>
-      <div style="flex:1;">
-        <label>重试间隔(秒)</label>
-        <input type="number" id="cfgLLMBackoff" placeholder="2" min="0" max="120">
-      </div>
-    </div>
-
-    <button class="btn btn-primary" onclick="saveModelConfig()">💾 保存模型设置</button>
-  </div>
-
-  <!-- Tab: Agent -->
-  <div class="tab" id="tab-agent" style="display:none;">
-    <div style="display:flex;gap:8px;margin-bottom:8px;">
-      <div style="flex:1;">
-        <label>最大工具迭代</label>
-        <input type="number" id="cfgMaxToolIter" placeholder="50" min="1" max="200">
-      </div>
-      <div style="flex:1;">
-        <label>最大文件大小(MB)</label>
-        <input type="number" id="cfgMaxMediaSize" placeholder="20" min="1" max="1024">
-      </div>
-    </div>
-
-    <label>运行模式</label>
-    <select id="cfgSteering" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;margin-bottom:8px;">
-      <option value="one-at-a-time">逐步执行 (推荐)</option>
-      <option value="all">全速模式</option>
-    </select>
-
-    <div style="display:flex;gap:8px;margin-bottom:8px;">
-      <div style="flex:1;">
-        <label>消息摘要阈值</label>
-        <input type="number" id="cfgSumThresh" placeholder="20" min="1" max="200">
-      </div>
-      <div style="flex:1;">
-        <label>摘要 Token%</label>
-        <input type="number" id="cfgSumPercent" placeholder="75" min="10" max="100">
-      </div>
-    </div>
-
-    <label>工作区目录</label>
-    <input type="text" id="cfgWorkspace" placeholder="/root/.picoclaw/workspace" style="margin-bottom:8px;">
-
-    <div class="toggle-row"><span>限制在工作区内</span><div class="toggle on" id="cfgRestrictWS" onclick="toggleCfg(this)"></div></div>
-    <div class="toggle-row"><span>允许读取外部文件</span><div class="toggle" id="cfgAllowReadOut" onclick="toggleCfg(this)"></div></div>
-    <div class="toggle-row"><span>消息标记分割</span><div class="toggle" id="cfgSplitMarker" onclick="toggleCfg(this)"></div></div>
-
-    <button class="btn btn-primary" onclick="saveAgentConfig()">💾 保存行为设置</button>
-    <button class="btn btn-secondary" onclick="saveAndReload()" style="margin-top:6px;">🔄 保存并重载全部配置</button>
-  </div>
-
-  <!-- Tab: Tools -->
-  <div class="tab" id="tab-tools" style="display:none;">
-    <label>允许读取的路径（一行一个）</label>
-    <textarea id="cfgReadPaths" rows="5" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:12px;font-family:'SF Mono','Fira Code',monospace;resize:vertical;margin-bottom:12px;"></textarea>
-    <label>允许写入的路径（一行一个）</label>
-    <textarea id="cfgWritePaths" rows="3" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:12px;font-family:'SF Mono','Fira Code',monospace;resize:vertical;margin-bottom:12px;"></textarea>
-    <button class="btn btn-primary" onclick="saveAndReload()">💾 保存并重载配置</button>
-    <button class="btn btn-danger" onclick="clearChat()" style="margin-top:10px;">🗑️ 清空对话</button>
-  </div>
-
-  <!-- Tab: Sessions -->
-  <div class="tab" id="tab-sessions" style="display:none;">
-    <label style="margin-top:4px;">对话历史</label>
-    <div id="sessList" style="max-height:300px;overflow-y:auto;margin-bottom:12px;"></div>
-    <button class="btn btn-primary" onclick="newSession();closeSettings();">+ 新对话</button>
-    <button class="btn btn-danger" onclick="deleteAllSessions()" style="margin-top:6px;">🗑️ 清空全部历史</button>
-  </div>
-
-  <!-- Tab: Characters -->
-  <div class="tab" id="tab-chars" style="display:none;">
-    <label>导入酒馆角色卡 (PNG)</label>
-    <input type="file" id="charFileInput" accept=".png" onchange="importCharacterCard(this)" style="display:none;">
-    <button class="btn btn-primary" onclick="document.getElementById('charFileInput').click()" style="margin-top:6px;">📥 导入 PNG 角色卡</button>
-    <button class="btn btn-secondary" onclick="clearCharacter()" style="margin-top:6px;">🔄 恢复默认</button>
-    <div id="charPreview"></div>
-    <div id="charList" style="max-height:200px;overflow-y:auto;margin-top:12px;"></div>
-  </div>
+<div id="inputBar">
+  <textarea id="msgInput" placeholder="输入消息..." rows="1" disabled></textarea>
+  <button id="sendBtn" disabled onclick="send()">发送</button>
 </div>
 
 <div id="toast"></div>
 
 <script>
-// ==========================================
-// Settings (localStorage)
-// ==========================================
-const DEFAULTS = {
-  wsUrl: 'ws://10.0.0.1:18790/pico/ws',
-  token: 'your-token-here',
-  showThinking: true,
-  lightTheme: false,
-  themeSystem: true,
-  showToolCalls: true,
-  activeSession: '',
-};
-let S = loadSettings();
-function loadSettings() {
-  try { const s = JSON.parse(localStorage.getItem('picoclaw-settings')||'{}'); return {...DEFAULTS,...s}; }
-  catch(_) { return {...DEFAULTS}; }
-}
-function saveSettings() { localStorage.setItem('picoclaw-settings', JSON.stringify(S)); }
+let messages = [];
+let sendCounter = 0;
+let ws = null, reconnectTimer = null;
 
-const EMBED = new URLSearchParams(location.search).has('embed');
-if (EMBED) document.body.classList.add('embed');
+const WS_URL = 'ws://10.0.0.1:18790/pico/ws';
+const TOKEN = 'picoclaw-router-2026';
+const HIST_KEY = 'pico-history';
 
-let ws = null, msgCounter = 0, reconnectTimer = null;
-let sessionMsgs = [];     // current session messages [{role,content,kind,time}]
-let estTokens = 0;
-
-// ==========================================
-// System Dark Mode Detection
-// ==========================================
-const darkMq = window.matchMedia('(prefers-color-scheme: dark)');
-function applyTheme() {
-  if (S.themeSystem) {
-    document.body.classList.toggle('light', !darkMq.matches);
-  } else {
-    document.body.classList.toggle('light', S.lightTheme);
-  }
-}
-darkMq.addEventListener('change', applyTheme);
-
-// ==========================================
-// Session Persistence
-// ==========================================
-function getSessions() {
-  try { return JSON.parse(localStorage.getItem('picoclaw:sessions')||'[]'); }
-  catch(_) { return []; }
-}
-function saveSessions(list) { localStorage.setItem('picoclaw:sessions', JSON.stringify(list)); }
-
-function getSessionData(id) {
-  try { return JSON.parse(localStorage.getItem('picoclaw:session:'+id)||'[]'); }
-  catch(_) { return []; }
-}
-function saveSessionData(id, msgs) {
-  localStorage.setItem('picoclaw:session:'+id, JSON.stringify(msgs));
-}
-
-function newSession() {
-  const id = 's' + Date.now();
-  S.activeSession = id;
-  saveSettings();
-  document.getElementById('messages').innerHTML = '';
-  sessionMsgs = [];
-  estTokens = 0;
-  updateTokenBar();
-  logSys('🆕 新对话');
-  saveCurrentSession();
-  renderSessionList();
-}
-
-function saveCurrentSession() {
-  if (!S.activeSession || sessionMsgs.length === 0) return;
-  // Don't save system messages
-  const toSave = sessionMsgs.filter(m => m.role !== 'system');
-  if (toSave.length === 0) return;
-  saveSessionData(S.activeSession, toSave);
-
-  let sessions = getSessions();
-  const idx = sessions.findIndex(s => s.id === S.activeSession);
-  const preview = toSave.find(m => m.role === 'user');
-  const info = {
-    id: S.activeSession,
-    preview: preview ? preview.content.substring(0, 80) : '(空)',
-    count: toSave.length,
-    time: Date.now()
-  };
-  if (idx >= 0) sessions[idx] = info;
-  else sessions.unshift(info);
-  saveSessions(sessions);
-}
-
-function loadSession(id) {
-  const data = getSessionData(id);
-  document.getElementById('messages').innerHTML = '';
-  sessionMsgs = [];
-  estTokens = 0;
-
-  S.activeSession = id;
-  saveSettings();
-
-  for (const m of data) {
-    sessionMsgs.push(m);
-    estTokens += estChars(m.content || '');
-    if (m.role === 'user') addUserMsg(m.content, m.time);
-    else if (m.role === 'bot') addBotMsg(m.content, m.kind, m.time, null);
-  }
-  updateTokenBar();
-  logSys('📂 已恢复对话 (' + data.length + ' 条消息)');
-}
-
-function deleteSession(id) {
-  localStorage.removeItem('picoclaw:session:'+id);
-  let sessions = getSessions().filter(s => s.id !== id);
-  saveSessions(sessions);
-  if (S.activeSession === id) { S.activeSession = ''; saveSettings(); }
-  renderSessionList();
-}
-
-function deleteAllSessions() {
-  if (!confirm('确定删除所有对话历史？此操作不可撤销！')) return;
-  const sessions = getSessions();
-  sessions.forEach(s => localStorage.removeItem('picoclaw:session:'+s.id));
-  saveSessions([]);
-  S.activeSession = '';
-  saveSettings();
-  renderSessionList();
-}
-
-function renderSessionList() {
-  const sessions = getSessions();
-  const el = document.getElementById('sessList');
-  if (sessions.length === 0) { el.innerHTML = '<div style="text-align:center;opacity:.4;padding:20px;">暂无历史对话</div>'; return; }
-  el.innerHTML = sessions.map(s => {
-    const preview = (s.preview||'(空)').replace(/</g,'&lt;');
-    const time = new Date(s.time).toLocaleDateString('zh-CN',{month:'short',day:'numeric'}) + ' ' +
-                 new Date(s.time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-    const active = s.id === S.activeSession ? ' active' : '';
-    return `<div class="sess-item${active}" onclick="loadSession('${s.id}');closeSettings();">
-      <span class="sess-name">${preview}</span>
-      <span class="sess-time">${s.count}条 · ${time}</span>
-      <button class="sess-del" onclick="event.stopPropagation();deleteSession('${s.id}')">✕</button>
-    </div>`;
-  }).join('');
-}
-
-// ==========================================
-// Markdown Renderer (enhanced, no external deps)
-// ==========================================
-function renderContent(text) {
-  if (!text) return '';
-  // Escape HTML first
-  let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-  // Store code blocks to protect from other transforms
-  const codeBlocks = [];
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, function(_, lang, code) {
-    const langTag = lang ? '<span class="lang-tag">'+lang+'</span>' : '';
-    codeBlocks.push('<pre>'+langTag+'<code>'+code+'</code></pre>');
-    return '\x00CODE'+(codeBlocks.length-1)+'\x00';
-  });
-  // Inline code
-  html = html.replace(/`([^`\n]+)`/g, function(_, code) {
-    codeBlocks.push('<code>'+code+'</code>');
-    return '\x00CODE'+(codeBlocks.length-1)+'\x00';
-  });
-
-  // Horizontal rules (before line-based processing)
-  html = html.replace(/^[-*_]{3,}\s*$/gm, '<hr>');
-
-  // Tables: | col | col |
-  html = html.replace(/((?:^\|.+\|\s*$[\n\r]?)+)/gm, function(match) {
-    const lines = match.trim().split(/\n/);
-    if (lines.length < 2) return match;
-    let table = '<table>';
-    for (let i = 0; i < lines.length; i++) {
-      const cells = lines[i].split('|').filter(c => c.trim() !== '' || lines[i].startsWith('|'));
-      // Skip separator line
-      if (i === 1 && /^[\s|:\-]+$/.test(lines[i].replace(/\|/g,''))) continue;
-      const tag = (i === 0) ? 'th' : 'td';
-      table += '<tr>' + cells.map(c => '<'+tag+'>'+c.trim()+'</'+tag+'>').join('') + '</tr>';
-    }
-    table += '</table>';
-    return table;
-  });
-
-  // Blockquotes
-  html = html.replace(/^&gt;\s?(.*)$/gm, '<blockquote>$1</blockquote>');
-  // Merge consecutive blockquotes
-  html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
-
-  // Headers
-  html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-
-  // Bold + Italic
-  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  
-  // Strikethrough
-  html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-
-  // Images
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
-
-  // Ordered lists
-  html = html.replace(/((?:^\d+\.\s+.+$\n?)+)/gm, function(match) {
-    const items = match.trim().split(/\n/).map(l => '<li>'+l.replace(/^\d+\.\s+/,'')+'</li>');
-    return '<ol>'+items.join('')+'</ol>';
-  });
-
-  // Unordered lists
-  html = html.replace(/((?:^[\-\*]\s+.+$\n?)+)/gm, function(match) {
-    const items = match.trim().split(/\n/).map(l => '<li>'+l.replace(/^[\-\*]\s+/,'')+'</li>');
-    return '<ul>'+items.join('')+'</ul>';
-  });
-
-  // Paragraphs: wrap remaining lines not inside HTML tags
-  const lines = html.split(/\n{2,}/);
-  html = lines.map(block => {
-    block = block.trim();
-    if (!block) return '';
-    if (/^<(h[1-4]|table|ul|ol|blockquote|hr|pre|div)/i.test(block)) return block;
-    // Single line breaks within paragraph
-    block = block.replace(/\n/g, '<br>');
-    return '<p>'+block+'</p>';
-  }).join('\n');
-
-  // Restore code blocks
-  html = html.replace(/\x00CODE(\d+)\x00/g, function(_, i) { return codeBlocks[parseInt(i)]; });
-
-  return html;
-}
-
-// ==========================================
-// Token Estimation
-// ==========================================
-function estChars(text) {
-  if (!text) return 0;
-  let cnt = 0;
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    cnt += (c > 127) ? 1.5 : 0.25; // CJK ~1.5 tokens/char, ASCII ~0.25
-  }
-  return Math.ceil(cnt);
-}
-
-function updateTokenBar() {
-  const ctxWin = parseInt(document.getElementById('cfgContextWindow')?.value || S.ctxWindow || 131072);
-  const pct = ctxWin > 0 ? Math.min(100, Math.round(estTokens / ctxWin * 100)) : 0;
-  const bar = document.getElementById('token-bar');
-  const info = document.getElementById('token-info');
-  bar.style.width = pct + '%';
-  bar.className = pct > 90 ? 'danger' : pct > 70 ? 'warn' : '';
-  info.textContent = '~' + estTokens.toLocaleString() + ' / ' + ctxWin.toLocaleString() + ' tokens';
-}
-
-// ==========================================
-// Init
-// ==========================================
-function init() {
-  document.getElementById('cfgUrl').value = S.wsUrl;
-  document.getElementById('cfgToken').value = S.token;
-  setToggle('cfgThinking', S.showThinking);
-  setToggle('cfgThemeSys', S.themeSystem);
-  setToggle('cfgTheme', S.lightTheme);
-  setToggle('cfgToolCalls', S.showToolCalls);
-  applyTheme();
-  document.querySelector('.tab-btn').classList.add('active');
-  fetchModelsFromServer();
-  // Restore last session if any
-  if (S.activeSession) {
-    const data = getSessionData(S.activeSession);
-    if (data.length > 0) {
-      loadSession(S.activeSession);
-    }
-  }
-  connect();
-}
-function setToggle(id, on) { document.getElementById(id).className = 'toggle'+(on?' on':''); }
-function toggleSetting(key, el) { S[key] = !S[key]; el.className = 'toggle'+(S[key]?' on':''); saveSettings(); }
-
-function toggleTheme(el) {
-  S.lightTheme = !S.lightTheme;
-  S.themeSystem = false;
-  setToggle('cfgThemeSys', false);
-  el.className = 'toggle'+(S.lightTheme?' on':'');
-  saveSettings();
-  applyTheme();
-}
-
-function toggleThemeSys(el) {
-  S.themeSystem = !S.themeSystem;
-  el.className = 'toggle'+(S.themeSystem?' on':'');
-  saveSettings();
-  applyTheme();
-}
-
-// ==========================================
-// Connection
-// ==========================================
+// ===== WebSocket =====
 function connect() {
-  const proto = 'token.' + S.token;
-  logSys('正在连接 ' + S.wsUrl + ' ...');
+  if (ws) try { ws.close(); } catch(e) {}
   try {
-    ws = new WebSocket(S.wsUrl, proto);
-    ws.onopen = () => {
+    ws = new WebSocket(WS_URL, 'token.' + TOKEN);
+    ws.onopen = function() {
       setConnected(true);
-      logSys('✅ 已连接 — ' + S.wsUrl.replace('ws://',''));
-      document.getElementById('headerInfo').innerHTML = '<span style="color:var(--green)">●</span> 已连接';
-      enableInput(true);
-      ws.send(JSON.stringify({ type: 'ping' }));
+      setInputEnabled(true);
     };
-    ws.onmessage = (e) => {
+    ws.onmessage = function(e) {
       try { handleMessage(JSON.parse(e.data)); } catch(_) {}
     };
-    ws.onclose = (e) => {
+    ws.onclose = function() {
       setConnected(false);
-      enableInput(false);
-      document.getElementById('headerInfo').innerHTML = '<span style="color:var(--red)">●</span> 断开 (' + (e.code||'?') + ')';
-      logSys('⚠️ 连接断开，5秒后重连...');
+      setInputEnabled(false);
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 5000);
     };
-    ws.onerror = () => { ws.close(); };
-  } catch(_) {
-    logSys('❌ 连接失败，5秒后重试...');
+    ws.onerror = function() { ws.close(); };
+  } catch(e) {
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 5000);
   }
 }
-function setConnected(on) { document.getElementById('status').className = 'status ' + (on ? 'ok' : 'err'); }
-function enableInput(on) {
+
+function setConnected(on) {
+  document.getElementById('statusDot').className = 'dot' + (on ? ' ok' : '');
+}
+function setInputEnabled(on) {
   document.getElementById('msgInput').disabled = !on;
   document.getElementById('sendBtn').disabled = !on;
-  if (on) document.getElementById('msgInput').focus();
 }
 
-// ==========================================
-// Message handling
-// ==========================================
+// ===== Messages =====
 function handleMessage(msg) {
   switch (msg.type) {
-    case 'message.create': renderMessage(msg, false); break;
-    case 'message.update': renderMessage(msg, true); break;
-    case 'message.delete': removeMessage(msg.id); break;
-    case 'error':
-      logSys('❌ ' + ((msg.payload && msg.payload.message) || '未知错误'));
-      document.getElementById('typing').style.display = 'none';
-      break;
-    case 'typing.start':
-      document.getElementById('typing').style.display = 'block';
-      scrollBottom();
-      break;
-    case 'typing.stop':
-      document.getElementById('typing').style.display = 'none';
-      break;
+    case 'message.create': addOrUpdateBot(msg, false); break;
+    case 'message.update': addOrUpdateBot(msg, true); break;
+    case 'message.stream': handleStream(msg); break;
+    case 'message.stream_end': handleStreamEnd(msg); break;
+    case 'message.delete': removeMsg(msg.payload && msg.payload.message_id || msg.id); break;
+    case 'error': showToast('❌ ' + ((msg.payload && msg.payload.message) || '错误')); stopTyping(); break;
+    case 'typing.start': startTyping(); break;
+    case 'typing.stop': stopTyping(); break;
     case 'pong': break;
   }
 }
 
-function renderMessage(msg, isUpdate) {
-  const payload = msg.payload || {};
-  const content = payload.content || '';
-  const kind = payload.kind || '';
-  const isThought = kind === 'thought';
-  const isTool = kind === 'tool_calls';
-  const id = msg.id;
-
-  if (isThought && !S.showThinking) return;
-  if (isTool && !S.showToolCalls) return;
-  if (payload.placeholder) return;
+function addOrUpdateBot(msg, isUpdate) {
+  var payload = msg.payload || {};
+  var mid = payload.message_id || msg.id;
+  var content = payload.content || '';
+  var kind = payload.kind || 'normal';
+  if (kind === 'thought' || kind === 'tool_calls') return;
+  if (msg.type === 'message.stream' || payload.stream) return;
+  if (!content && !isUpdate) return;
+  var ts = new Date(msg.timestamp || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
   if (isUpdate) {
-    const el = document.getElementById('msg-' + id);
-    if (el) {
-      if (!isThought && !isTool) {
-        el.className = 'msg bot';
-        el.innerHTML = renderContent(content);
-        // Update stored message
-        const sm = sessionMsgs.find(m => m._id === id);
-        if (sm) { sm.content = content; }
-      } else {
-        el.textContent = (isTool ? '🔧 ' : '') + content;
-      }
-      scrollBottom();
-      if (!isThought && !isTool) document.getElementById('typing').style.display = 'none';
-      saveCurrentSession();
-      return;
+    var ex = findMsg(mid);
+    if (ex) { ex.content = content; } else {
+      messages.push({ id: mid, role: 'assistant', content: content, time: ts });
     }
-  }
-
-  const div = document.createElement('div');
-  div.id = 'msg-' + id;
-  if (isThought) {
-    div.className = 'msg thought';
-    div.textContent = content;
-  } else if (isTool) {
-    div.className = 'msg tool';
-    div.textContent = '🔧 ' + content;
+    if (!payload.placeholder) stopTyping();
   } else {
-    div.className = 'msg bot';
-    div.innerHTML = renderContent(content);
-    document.getElementById('typing').style.display = 'none';
-    // Store in session
-    const t = Date.now();
-    sessionMsgs.push({ _id: id, role: 'bot', content: content, kind: kind, time: t });
+    var idx = messages.findIndex(function(m) { return m.id === mid; });
+    var obj = { id: mid, role: 'assistant', content: content, time: ts };
+    if (idx >= 0) messages[idx] = obj; else messages.push(obj);
+    if (!payload.placeholder) stopTyping();
   }
-
-  if (!isThought && !isTool && content) {
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.innerHTML = '<span>' + now() + '</span><button class="copy-btn" title="复制">📋</button>';
-    meta.querySelector('.copy-btn').onclick = (e) => { e.stopPropagation(); copyText(content); };
-    div.appendChild(meta);
-  }
-
-  document.getElementById('messages').appendChild(div);
-  scrollBottom();
-
-  if (!isThought && !isTool && !isUpdate) {
-    estTokens += estChars(content);
-    updateTokenBar();
-    saveCurrentSession();
-  }
+  saveHistory();
+  renderMessages();
 }
 
-function removeMessage(id) {
-  const el = document.getElementById('msg-' + id);
-  if (el) el.remove();
-}
+function findMsg(id) { return messages.find(function(m) { return m.id === id; }); }
+function removeMsg(id) { messages = messages.filter(function(m) { return m.id !== id; }); renderMessages(); }
 
-function send() {
-  const input = document.getElementById('msgInput');
-  const text = input.value.trim();
-  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+function startTyping() { document.getElementById('typing').style.display = 'flex'; scrollBottom(); }
+function stopTyping() { document.getElementById('typing').style.display = 'none'; }
 
-  if (!S.activeSession) { S.activeSession = 's' + Date.now(); saveSettings(); }
-
-  const id = 'c' + (++msgCounter);
-  addUser(text);
-  sessionMsgs.push({ _id: id, role: 'user', content: text, time: Date.now() });
-  estTokens += estChars(text);
-  updateTokenBar();
-
-  ws.send(JSON.stringify({
-    type: 'message.send',
-    id: id,
-    timestamp: Date.now(),
-    payload: { content: text }
-  }));
-  input.value = '';
-  input.style.height = 'auto';
-  document.getElementById('typing').style.display = 'block';
-  scrollBottom();
-}
-
-function addUserMsg(text, time) {
-  const div = document.createElement('div');
-  div.className = 'msg user';
-  div.innerHTML = renderContent(text);
-  const meta = document.createElement('div');
-  meta.className = 'meta';
-  meta.innerHTML = '<span>' + fmtTime(time) + '</span>';
-  div.appendChild(meta);
-  document.getElementById('messages').appendChild(div);
-  scrollBottom();
-}
-
-function addUser(text) { addUserMsg(text, Date.now()); }
-
-function addBotMsg(text, kind, time, id) {
-  const div = document.createElement('div');
-  div.className = 'msg bot';
-  if (id) div.id = 'msg-' + id;
-  div.innerHTML = renderContent(text);
-  const meta = document.createElement('div');
-  meta.className = 'meta';
-  meta.innerHTML = '<span>' + fmtTime(time) + '</span><button class="copy-btn" title="复制">📋</button>';
-  meta.querySelector('.copy-btn').onclick = (e) => { e.stopPropagation(); copyText(text); };
-  div.appendChild(meta);
-  document.getElementById('messages').appendChild(div);
-  scrollBottom();
-}
-
-function logSys(text) {
-  const div = document.createElement('div');
-  div.className = 'msg system';
-  div.textContent = text;
-  document.getElementById('messages').appendChild(div);
-  scrollBottom();
-}
-
-// ==========================================
-// Settings UI
-// ==========================================
-function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.style.display='none');
-  event.target.classList.add('active');
-  const tab = document.getElementById('tab-'+name);
-  if (tab) {
-    tab.style.display='block';
-    if (name==='model'||name==='agent'||name==='tools') fetchServerConfig();
-    if (name==='sessions') renderSessionList();
-  }
-}
-function openSettings() {
-  document.getElementById('cfgUrl').value = S.wsUrl;
-  document.getElementById('cfgToken').value = S.token;
-  setToggle('cfgThinking', S.showThinking);
-  setToggle('cfgTheme', S.lightTheme);
-  setToggle('cfgThemeSys', S.themeSystem);
-  setToggle('cfgToolCalls', S.showToolCalls);
-  const mainSel = document.getElementById('modelSelect');
-  const settingsSel = document.getElementById('settingsModelSelect');
-  settingsSel.innerHTML = mainSel.innerHTML;
-  document.getElementById('settings-overlay').classList.add('open');
-  document.getElementById('settings-panel').classList.add('open');
-  switchTab('chars');
-}
-function closeSettings() {
-  document.getElementById('settings-overlay').classList.remove('open');
-  document.getElementById('settings-panel').classList.remove('open');
-}
-function toggleCfg(el) { el.classList.toggle('on'); }
-
-async function fetchServerConfig() {
-  const url = S.wsUrl.replace('/pico/ws','/config').replace('ws://','http://');
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) return;
-    const cfg = await resp.json();
-    const ad = (cfg.agents||{}).defaults||{};
-    document.getElementById('cfgMaxTokens').value = ad.max_tokens || 32768;
-    document.getElementById('cfgMaxToolIter').value = ad.max_tool_iterations || 50;
-    document.getElementById('cfgWorkspace').value = ad.workspace || '';
-    document.getElementById('cfgSteering').value = ad.steering_mode || 'one-at-a-time';
-    document.getElementById('cfgContextWindow').value = ad.context_window || '';
-    S.ctxWindow = ad.context_window || 131072;
-    document.getElementById('cfgTemperature').value = ad.temperature != null ? ad.temperature : 1.0;
-    document.getElementById('cfgTempVal').textContent = ad.temperature != null ? ad.temperature : '1.0';
-    document.getElementById('cfgLLMRetries').value = ad.max_llm_retries || 2;
-    document.getElementById('cfgLLMBackoff').value = ad.llm_retry_backoff_secs || 2;
-    document.getElementById('cfgSumThresh').value = ad.summarize_message_threshold || 20;
-    document.getElementById('cfgSumPercent').value = ad.summarize_token_percent || 75;
-    document.getElementById('cfgMaxMediaSize').value = ad.max_media_size ? Math.floor(ad.max_media_size/1048576) : 20;
-    setToggle('cfgRestrictWS', ad.restrict_to_workspace !== false);
-    setToggle('cfgAllowReadOut', ad.allow_read_outside_workspace === true);
-    setToggle('cfgSplitMarker', ad.split_on_marker === true);
-
-    const mc = cfg.current_model||{};
-    document.getElementById('cfgModelId').value = mc.model || '';
-    document.getElementById('cfgApiBase').value = mc.api_base || '';
-    document.getElementById('cfgProvider').value = mc.provider || '';
-    document.getElementById('cfgThinkingLevel').value = mc.thinking_level || '';
-    document.getElementById('cfgReqTimeout').value = mc.request_timeout || '';
-    document.getElementById('cfgRPM').value = mc.rpm || '';
-
-    const t = cfg.tools||{};
-    document.getElementById('cfgReadPaths').value = (t.allow_read_paths||[]).join('\n');
-    document.getElementById('cfgWritePaths').value = (t.allow_write_paths||[]).join('\n');
-
-    updateTokenBar();
-  } catch(e) {}
-}
-
-function collectAgentPatch() {
-  const ms = parseInt(document.getElementById('cfgMaxMediaSize').value);
-  return {
-    max_tokens: parseInt(document.getElementById('cfgMaxTokens').value)||32768,
-    max_tool_iterations: parseInt(document.getElementById('cfgMaxToolIter').value)||50,
-    steering_mode: document.getElementById('cfgSteering').value||'one-at-a-time',
-    workspace: document.getElementById('cfgWorkspace').value||undefined,
-    context_window: parseInt(document.getElementById('cfgContextWindow').value)||0,
-    temperature: parseFloat(document.getElementById('cfgTemperature').value),
-    max_llm_retries: parseInt(document.getElementById('cfgLLMRetries').value)||2,
-    llm_retry_backoff_secs: parseInt(document.getElementById('cfgLLMBackoff').value)||2,
-    summarize_message_threshold: parseInt(document.getElementById('cfgSumThresh').value)||20,
-    summarize_token_percent: parseInt(document.getElementById('cfgSumPercent').value)||75,
-    max_media_size: ms > 0 ? ms * 1048576 : undefined,
-    restrict_to_workspace: document.getElementById('cfgRestrictWS').classList.contains('on'),
-    allow_read_outside_workspace: document.getElementById('cfgAllowReadOut').classList.contains('on'),
-    split_on_marker: document.getElementById('cfgSplitMarker').classList.contains('on'),
-  };
-}
-
-async function saveModelConfig() {
-  const patch = collectAgentPatch();
-  patch.model = document.getElementById('cfgModelId').value||undefined;
-  patch.api_base = document.getElementById('cfgApiBase').value||undefined;
-  patch.thinking_level = document.getElementById('cfgThinkingLevel').value||undefined;
-  patch.request_timeout = parseInt(document.getElementById('cfgReqTimeout').value)||undefined;
-  patch.rpm = parseInt(document.getElementById('cfgRPM').value)||undefined;
-  await saveConfigAndReload(patch);
-}
-
-async function saveAgentConfig() { await saveConfigAndReload(collectAgentPatch()); }
-
-async function saveAndReload() {
-  const patch = collectAgentPatch();
-  patch.allow_read_paths = document.getElementById('cfgReadPaths').value.split('\n').map(s=>s.trim()).filter(s=>s);
-  patch.allow_write_paths = document.getElementById('cfgWritePaths').value.split('\n').map(s=>s.trim()).filter(s=>s);
-  await saveConfigAndReload(patch);
-}
-
-async function saveConfigAndReload(patch) {
-  const url = S.wsUrl.replace('/pico/ws','/config').replace('ws://','http://');
-  S.ctxWindow = patch.context_window || S.ctxWindow;
-  try {
-    const resp = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch) });
-    const data = await resp.json();
-    if (data.status === 'updated') {
-      toast('✅ 配置已保存并重载');
-      updateTokenBar();
-      closeSettings();
-      if (ws) { ws.onclose=null; ws.close(); }
-      clearTimeout(reconnectTimer);
-      setTimeout(connect, 1200);
-    } else { toast('⚠️ 保存失败: ' + JSON.stringify(data)); }
-  } catch(e) { toast('⚠️ 请求失败: '+e.message); }
-}
-
-async function switchModelFromSettings(modelName) {
-  document.getElementById('modelSelect').value = modelName;
-  await switchModel(modelName);
-}
-
-function applyAndReconnect() {
-  S.wsUrl = document.getElementById('cfgUrl').value.trim() || DEFAULTS.wsUrl;
-  S.token = document.getElementById('cfgToken').value.trim() || DEFAULTS.token;
-  saveSettings();
-  closeSettings();
-  applyTheme();
-  if (ws) { ws.onclose = null; ws.close(); }
-  clearTimeout(reconnectTimer);
-  connect();
-  toast('✅ 设置已保存，正在重连...');
-}
-
-async function fetchHealth() {
-  const url = S.wsUrl.replace('/pico/ws','/health').replace('ws://','http://');
-  const info = document.getElementById('healthInfo');
-  info.style.display = 'block';
-  info.textContent = '⏳ 检测中...';
-  try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    const data = await resp.json();
-    info.innerHTML = '✅ 网关运行中<br>PID: ' + data.pid + '<br>运行时间: ' + data.uptime + '<br>状态: ' + data.status;
-  } catch(e) { info.innerHTML = '❌ 无法连接<br>' + e.message; }
-}
-
-function clearChat() {
-  if (!confirm('确定清空当前对话？')) return;
-  document.getElementById('messages').innerHTML = '';
-  sessionMsgs = [];
-  estTokens = 0;
-  updateTokenBar();
-  logSys('🔄 对话已清空');
-  if (ws && ws.readyState === WebSocket.OPEN) { ws.onclose=null; ws.close(); }
-  clearTimeout(reconnectTimer);
-  connect();
-  closeSettings();
-}
-function copyText(text) { navigator.clipboard.writeText(text).then(() => toast('📋 已复制')).catch(()=>{}); }
-
-// ==========================================
-// Model switching
-// ==========================================
-async function fetchModelsFromServer() {
-  const httpUrl = S.wsUrl.replace('/pico/ws','/models').replace('ws://','http://');
-  try {
-    const resp = await fetch(httpUrl);
-    if (!resp.ok) throw new Error(resp.status);
-    const data = await resp.json();
-    const models = data.models || [];
-    const current = data.current || '';
-    S.model = current;
-    const sel = document.getElementById('modelSelect');
-    sel.innerHTML = models.map(m =>
-      `<option value="${m}"${m===current?' selected':''}>${m.replace('deepseek-','').replace('-v4',' v4')}</option>`
-    ).join('');
-  } catch(e) {
-    console.error('Failed to load models:', e);
-    document.getElementById('modelSelect').innerHTML = '<option value="">加载失败</option>';
-  }
-}
-
-async async function switchChar(charId) {
-  if (!charId) { await clearCharacter(); return; }
-  await activateCharacter(charId);
-}
-function refreshCharSelect() {
-  const chars = getCharacters();
-  const sel = document.getElementById('charSelect');
-  const entries = Object.values(chars);
-  sel.innerHTML = '<option value="">默认</option>' +
-    entries.map(c => '<option value="' + c.id + '"' + (c.id === S.activeChar ? ' selected' : '') + '>' + (c.name || '?').replace(/</g,'&lt;') + '</option>').join('');
-}
-// Also update charSelect on load
-const origInit = init;
-init = function() { origInit(); refreshCharSelect(); };
-
-async function switchModel(modelName) {
-  if (!modelName || modelName === S.model) return;
-  const url = S.wsUrl.replace('/pico/ws','/model/switch?model='+encodeURIComponent(modelName)).replace('ws://','http://');
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(resp.status);
-    const data = await resp.json();
-    if (data.status === 'switched') {
-      S.model = modelName;
-      document.getElementById('messages').innerHTML = '';
-      sessionMsgs = [];
-      estTokens = 0;
-      updateTokenBar();
-      logSys('✅ 已切换: ' + modelName);
-      if (ws) { ws.onclose = null; ws.close(); }
-      clearTimeout(reconnectTimer);
-      setTimeout(connect, 1000);
+function renderMessages() {
+  var c = document.getElementById('msgList');
+  if (!messages.length) { c.innerHTML = '<div class="empty">发送消息开始对话</div>'; return; }
+  c.innerHTML = messages.map(function(m) {
+    if (m.role === 'user') {
+      return '<div class="msg-row user"><div class="bubble">' + escHtml(m.content) + '</div><div class="time">' + (m.time || '') + '</div></div>';
     }
-  } catch(e) { toast('⚠️ 切换失败: ' + e.message); }
+    return '<div class="msg-row assistant"><div class="head"><span class="name">PicoClaw</span><span>' + (m.time || '') + '</span></div><div class="bubble">' + renderMd(m.content) + '</div></div>';
+  }).join('');
+  scrollBottom();
+}
+
+function renderMd(text) {
+  if (!text) return '';
+  return escHtml(text)
+    .replace(/`(\w*)\n([\s\S]*?)`/g, '<pre><code></code></pre>')
+    .replace(/([^]+)/g, '<code></code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong></strong>')
+    .replace(/^### (.+)$/gm, '<h3></h3>')
+    .replace(/^## (.+)$/gm, '<h2></h2>')
+    .replace(/^# (.+)$/gm, '<h1></h1>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote></blockquote>')
+    .replace(/\n/g, '<br>');
+}
+
+function handleStream(msg) {
+  var id = msg.id;
+  var payload = msg.payload || {};
+  var content = payload.content || '';
+  if (!id || !content) return;
+  var ex = findMsg(id);
+  if (ex) { ex.content = (ex.content || '') + content; }
+  else { messages.push({ id: id, role: 'assistant', content: content, time: '' }); }
+  renderMessages();
+}
+
+function handleStreamEnd(msg) {
+  var id = msg.id;
+  if (!id) return;
+  stopTyping();
+  renderMessages();
 }
 
 function scrollBottom() {
-  const m = document.getElementById('messages');
-  requestAnimationFrame(() => { m.scrollTop = m.scrollHeight; });
-}
-function now() { return fmtTime(Date.now()); }
-function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-}
-function toast(text) {
-  const t = document.getElementById('toast');
-  t.textContent = text; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2000);
+  requestAnimationFrame(function() {
+    document.getElementById('msgList').scrollTop = document.getElementById('msgList').scrollHeight;
+  });
 }
 
-// ==========================================
-// Textarea auto-resize + Keyboard
-// ==========================================
-document.getElementById('msgInput').addEventListener('input', function() {
-  this.style.height = 'auto';
-  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-});
-document.getElementById('msgInput').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-});
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeSettings();
-});
-
-// ==========================================
-// Character Card System (SillyTavern V2/V3 compatible)
-// ==========================================
-
-// Get stored characters
-function getCharacters() {
-  try { return JSON.parse(localStorage.getItem('picoclaw:chars')||'{}'); }
-  catch(_) { return {}; }
-}
-function saveCharacters(chars) { localStorage.setItem('picoclaw:chars', JSON.stringify(chars)); }
-
-// Parse PNG character card - read tEXt chunk, extract JSON
-function parseCharacterCardPNG(buffer) {
-  const data = new Uint8Array(buffer);
-  // Check PNG signature
-  const sig = [137,80,78,71,13,10,26,10];
-  for (let i = 0; i < 8; i++) if (data[i] !== sig[i]) throw new Error('不是有效的 PNG 文件');
-
-  let offset = 8;
-  while (offset < data.length) {
-    const length = (data[offset]<<24)|(data[offset+1]<<16)|(data[offset+2]<<8)|data[offset+3];
-    offset += 4;
-    const type = String.fromCharCode(...data.slice(offset, offset+4));
-    offset += 4;
-    const chunkData = data.slice(offset, offset + length);
-    offset += length;
-    const crc = data.slice(offset, offset+4);
-    offset += 4;
-
-    if (type === 'tEXt') {
-      // tEXt: keyword\0text
-      let nullIdx = -1;
-      for (let i = 0; i < chunkData.length; i++) { if (chunkData[i] === 0) { nullIdx = i; break; } }
-      if (nullIdx < 0) continue;
-      const keyword = String.fromCharCode(...chunkData.slice(0, nullIdx));
-      if (keyword === 'chara' || keyword === 'ccv3') {
-        const b64 = String.fromCharCode(...chunkData.slice(nullIdx + 1));
-        try {
-          const json = atob(b64);
-          const card = JSON.parse(json);
-          return normalizeCard(card);
-        } catch(e) { /* continue to next chunk */ }
-      }
-    }
-    if (type === 'IEND') break;
-  }
-  throw new Error('PNG 中未找到角色卡数据 (chara/ccv3 chunk)');
+// ===== Send =====
+function send() {
+  var input = document.getElementById('msgInput');
+  var text = input.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  var ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  var id = 'msg-' + (++sendCounter) + '-' + Date.now();
+  messages.push({ id: id + '-user', role: 'user', content: text, time: ts });
+  ws.send(JSON.stringify({ type: 'message.send', id: id, payload: { content: text } }));
+  saveHistory();
+  renderMessages();
+  input.value = ''; input.style.height = 'auto';
 }
 
-// Normalize V1/V2/V3 card format
-function normalizeCard(card) {
-  if (card.spec === 'chara_card_v2' || card.spec === 'chara_card_v3') {
-    const d = card.data || {};
-    return {
-      name: d.name || card.name || 'Unknown',
-      description: d.description || '',
-      personality: d.personality || '',
-      scenario: d.scenario || '',
-      first_mes: d.first_mes || '',
-      mes_example: d.mes_example || '',
-      system_prompt: d.system_prompt || '',
-      post_history_instructions: d.post_history_instructions || '',
-      creator_notes: d.creator_notes || '',
-      tags: d.tags || [],
-      creator: d.creator || '',
-      version: d.character_version || '',
-    };
-  }
-  // V1 or unknown
-  return {
-    name: card.name || 'Unknown',
-    description: card.description || '',
-    personality: card.personality || '',
-    scenario: card.scenario || '',
-    first_mes: card.first_mes || '',
-    mes_example: card.mes_example || '',
-    system_prompt: '',
-    post_history_instructions: '',
-    creator_notes: '',
-    tags: card.tags || [],
-    creator: card.creator || '',
-    version: card.character_version || '',
-  };
-}
-
-// Convert character card to system prompt text
-function cardToPrompt(card) {
-  let parts = [];
-  parts.push('CRITICAL: You are now ROLEPLAYING as the following character. You MUST respond as this character. Do NOT introduce yourself as PicoClaw, an AI assistant, or any other identity. Stay in character at all times.');
-  parts.push('\n## Character Identity');
-  parts.push('You are roleplaying as: ' + card.name);
-  if (card.description) parts.push('\n## Description\n' + card.description);
-  if (card.personality) parts.push('\n## Personality\n' + card.personality);
-  if (card.scenario) parts.push('\n## Scenario\n' + card.scenario);
-  if (card.system_prompt) parts.push('\n## System Instructions\n' + card.system_prompt);
-  if (card.post_history_instructions) parts.push('\n## Behavior Rules\n' + card.post_history_instructions);
-  if (card.mes_example) parts.push('\n## Example Dialogue\n' + card.mes_example);
-  return parts.join('\n');
-}
-
-// Import from file picker
-async function importCharacterCard(input) {
-  const file = input.files[0];
-  if (!file) return;
+function newSession() {
+  showToast('🧹 清空...');
+  messages = [];
+  try { localStorage.setItem(HIST_KEY, '[]'); } catch(e) {}
   try {
-    const buffer = await file.arrayBuffer();
-    const card = parseCharacterCardPNG(buffer);
-    const chars = getCharacters();
-    const id = 'char_' + Date.now();
-    chars[id] = { ...card, id: id, added: Date.now() };
-    saveCharacters(chars);
-    showCharPreview(card);
-    renderCharList();
-    refreshCharSelect();
-    toast('✅ 已导入: ' + card.name);
-  } catch(e) {
-    toast('❌ 导入失败: ' + e.message);
-    console.error(e);
-  }
-  input.value = '';
+    fetch("http://10.0.0.1:18790/character/clear?name=PicoClaw", {
+      method: "POST", body: "I am PicoClaw, a helpful AI assistant.",
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
+  } catch(e) {}
+  renderMessages();
+  showToast('✅ 已清空');
 }
 
-function showCharPreview(card) {
-  const p = document.getElementById('charPreview');
-  p.style.display = 'block';
-  p.innerHTML = '<strong>' + card.name + '</strong>\n' +
-    card.description.substring(0, 200) + (card.description.length > 200 ? '...' : '') +
-    '\n\n' + card.personality.substring(0, 100);
+// ===== Utils =====
+function escHtml(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(function() { t.classList.remove('show'); }, 2500);
 }
 
-// Activate a character
-async function activateCharacter(charId) {
-  const chars = getCharacters();
-  const card = chars[charId];
-  if (!card) return;
-  const prompt = cardToPrompt(card);
-  S.activeChar = charId;
-  saveSettings();
-
-  // Send character prompt to server (writes to config.json + SOUL.md)
-  const url = S.wsUrl.replace('/pico/ws','/character/clear').replace('ws://','http://') + '?name=' + encodeURIComponent(card.name);
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', function() {
+  connect();
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {'Content-Type':'text/plain'},
-      body: prompt
-    });
-    const data = await resp.json();
-    if (data.status === 'cleared') {
-      toast('✅ 已激活角色: ' + card.name);
-      renderCharList();
-      refreshCharSelect();
-      closeSettings();
-      // Reconnect to pick up new system prompt
-      if (ws) { ws.onclose=null; ws.close(); }
-      clearTimeout(reconnectTimer);
-      setTimeout(connect, 1500);
-    } else {
-      toast('⚠️ 激活失败');
-    }
-  } catch(e) {
-    toast('⚠️ 请求失败: ' + e.message);
-  }
+    var raw = localStorage.getItem(HIST_KEY);
+    if (raw) { messages = JSON.parse(raw); renderMessages(); }
+  } catch(e) {}
+
+  document.getElementById('msgInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  document.getElementById('msgInput').addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+  window.addEventListener('beforeunload', function() { saveHistory(); });
+});
+
+function saveHistory() {
+  if (!messages.length) return;
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(messages)); } catch(e) {}
 }
-
-function clearCharacter() {
-  // Activate default PicoClaw identity
-  const defaultPrompt = 'I am PicoClaw, a helpful AI assistant. I am helpful, concise, and practical. I respond naturally in first person.';
-  S.activeChar = '';
-  saveSettings();
-  const url = S.wsUrl.replace('/pico/ws','/character/clear').replace('ws://','http://');
-  fetch(url, { method: 'POST', headers: {'Content-Type':'text/plain'}, body: defaultPrompt })
-    .then(r => r.json()).then(d => {
-      if (d.status === 'cleared') {
-        toast('✅ 已恢复默认');
-        renderCharList();
-        refreshCharSelect();
-        closeSettings();
-        if (ws) { ws.onclose=null; ws.close(); }
-        clearTimeout(reconnectTimer);
-        setTimeout(connect, 1500);
-      }
-    }).catch(()=>{
-      toast('⚠️ 操作失败，请刷新后重试');
-    });
-}
-
-function deleteCharacter(charId) {
-  const chars = getCharacters();
-  delete chars[charId];
-  saveCharacters(chars);
-  if (S.activeChar === charId) { S.activeChar = ''; saveSettings(); }
-  renderCharList();
-  refreshCharSelect();
-}
-
-function renderCharList() {
-  const chars = getCharacters();
-  const list = document.getElementById('charList');
-  const entries = Object.values(chars).sort((a,b) => b.added - a.added);
-  if (entries.length === 0) {
-    list.innerHTML = '<div style="text-align:center;opacity:.4;padding:16px;">暂无角色，导入 PNG 角色卡开始</div>';
-    return;
-  }
-  list.innerHTML = entries.map(c => {
-    const active = c.id === S.activeChar ? ' active' : '';
-    const name = (c.name||'?').replace(/</g,'&lt;');
-    const desc = (c.description||'').substring(0,50).replace(/</g,'&lt;');
-    return '<div class="char-item' + active + '" onclick="activateCharacter(\'' + c.id + '\')">' +
-      '<div class="char-avatar">🦞</div>' +
-      '<div class="char-info"><div class="char-name">' + name + '</div><div class="char-desc">' + desc + '</div></div>' +
-      '<button class="char-del" onclick="event.stopPropagation();deleteCharacter(\'' + c.id + '\')">✕</button>' +
-      '</div>';
-  }).join('');
-}
-
-// Add renderCharList call when opening chars tab
-const origSwitchTab = switchTab;
-switchTab = function(name) {
-  origSwitchTab(name);
-  if (name === 'chars') renderCharList();
-};
-
-// Add activeChar to settings
-DEFAULTS.activeChar = '';
-
-function switchChar() {
-  var v = document.getElementById('charSelect').value;
-  if (!v) { clearCharacter(); return; }
-  activateCharacter(v);
-}
-function refreshCharSelect() {
-  var s = document.getElementById('charSelect');
-  var chars = getCharacters();
-  var list = Object.values(chars);
-  s.innerHTML = '<option value="">默认</option>' + list.map(function(c) {
-    return '<option value="' + c.id + '"' + (c.id === S.activeChar ? ' selected' : '') + '>' + (c.name || '?') + '</option>';
-  }).join('');
-}
-refreshCharSelect();
-
-init();
 </script>
 </body>
 </html>

@@ -1,0 +1,14 @@
+#!/bin/sh
+printf 'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n'
+
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+  printf 'Content-Type: text/plain\r\n\r\nok'
+  exit 0
+fi
+
+RULES="/root/.picoclaw/workspace/RULES.md"
+
+printf 'Content-Type: text/plain; charset=utf-8\r\n\r\n'
+if [ -f "$RULES" ]; then
+  cat "$RULES"
+fi

@@ -48,12 +48,6 @@ type AgentPromptDefinition struct {
 	FrontmatterErr string           `json:"frontmatter_error,omitempty"`
 }
 
-// CharacterDefinition represents the resolved CHARACTER.md file in the workspace.
-type CharacterDefinition struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-
 // SoulDefinition represents the resolved SOUL.md file linked to the agent.
 type SoulDefinition struct {
 	Path    string `json:"path"`
@@ -68,11 +62,10 @@ type UserDefinition struct {
 
 // AgentContextDefinition captures the workspace agent definition in a runtime-friendly shape.
 type AgentContextDefinition struct {
-	Source    AgentDefinitionSource   `json:"source,omitempty"`
-	Agent     *AgentPromptDefinition  `json:"agent,omitempty"`
-	Character *CharacterDefinition    `json:"character,omitempty"`
-	Soul      *SoulDefinition         `json:"soul,omitempty"`
-	User      *UserDefinition         `json:"user,omitempty"`
+	Source AgentDefinitionSource  `json:"source,omitempty"`
+	Agent  *AgentPromptDefinition `json:"agent,omitempty"`
+	Soul   *SoulDefinition        `json:"soul,omitempty"`
+	User   *UserDefinition        `json:"user,omitempty"`
 }
 
 // LoadAgentDefinition parses the workspace agent bootstrap files.
@@ -87,16 +80,6 @@ func (cb *ContextBuilder) LoadAgentDefinition() AgentContextDefinition {
 func loadAgentDefinition(workspace string) AgentContextDefinition {
 	definition := AgentContextDefinition{}
 	definition.User = loadUserDefinition(workspace)
-
-	// CHARACTER.md: pure character persona (switched by character handler, kept by user for rules)
-	charPath := filepath.Join(workspace, "CHARACTER.md")
-	if content, err := os.ReadFile(charPath); err == nil {
-		definition.Character = &CharacterDefinition{
-			Path:    charPath,
-			Content: string(content),
-		}
-	}
-
 	agentPath := filepath.Join(workspace, string(AgentDefinitionSourceAgent))
 	if content, err := os.ReadFile(agentPath); err == nil {
 		prompt := parseAgentPromptDefinition(agentPath, string(content))
@@ -138,7 +121,6 @@ func loadAgentDefinition(workspace string) AgentContextDefinition {
 func (definition AgentContextDefinition) trackedPaths(workspace string) []string {
 	paths := []string{
 		filepath.Join(workspace, string(AgentDefinitionSourceAgent)),
-		filepath.Join(workspace, "CHARACTER.md"),
 		filepath.Join(workspace, "SOUL.md"),
 		filepath.Join(workspace, "USER.md"),
 	}

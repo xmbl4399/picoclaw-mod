@@ -442,7 +442,6 @@ type AgentDefaults struct {
 	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
 	SplitOnMarker             bool               `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
-	CharacterPrompt           string             `json:"character_prompt,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CHARACTER_PROMPT"`
 	ContextManager            string             `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
 	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
@@ -809,7 +808,7 @@ type ModelConfig struct {
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
 
-	APIKeys SecureStrings `json:"api_keys,omitempty" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
+	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 
 	// Enabled indicates whether this model entry is active. When omitted in
 	// existing configs, the field is inferred during load: models with API keys
@@ -827,10 +826,6 @@ type ModelConfig struct {
 func (c *ModelConfig) APIKey() string {
 	if len(c.APIKeys) > 0 {
 		return c.APIKeys[0].String()
-	}
-	// Fallback: PICOCLAW_MODEL_KEY env var for platforms where json decode may reset the slice
-	if k := os.Getenv("PICOCLAW_MODEL_KEY"); k != "" {
-		return k
 	}
 	return ""
 }

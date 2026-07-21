@@ -1,0 +1,22 @@
+#!/bin/sh
+printf 'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n'
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+  printf 'Content-Type: text/plain\r\n\r\nok'
+  exit 0
+fi
+printf 'Content-Type: application/json\r\n\r\n'
+if [ "$REQUEST_METHOD" != "POST" ]; then
+  printf '{"error":"use POST"}'
+  exit 0
+fi
+
+# Read id from query string, prompt from POST body (raw text)
+ID=$(echo "$QUERY_STRING" | sed 's/.*[?&]\?id=//;s/[&].*//' | tr -cd 'a-zA-Z0-9_-')
+if [ -z "$ID" ]; then
+  printf '{"error":"missing id (use ?id=xxx)"}'
+  exit 0
+fi
+
+# Read raw POST body (the prompt text)
+cat - > "/root/.picoclaw/workspace/characters/${ID}.md"
+printf '{"status":"created","id":"%s"}' "$ID"

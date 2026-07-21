@@ -24,12 +24,7 @@ type MimoTTSProvider struct {
 	httpClient *http.Client
 }
 
-type MimoTTSOptions struct {
-	Voice  string
-	Format string
-}
-
-func NewMimoTTSProvider(apiKey string, apiBase string, model string, proxyURL string, options MimoTTSOptions) *MimoTTSProvider {
+func NewMimoTTSProvider(apiKey string, apiBase string, model string, proxyURL string, voice string) *MimoTTSProvider {
 	if apiBase == "" {
 		apiBase = "https://api.xiaomimimo.com/v1/chat/completions"
 	} else {
@@ -82,20 +77,16 @@ func NewMimoTTSProvider(apiKey string, apiBase string, model string, proxyURL st
 		}
 	}
 
-	voice := strings.TrimSpace(options.Voice)
+	voice = strings.TrimSpace(voice)
 	if voice == "" {
-		voice = "default_zh"
-	}
-	format := strings.TrimSpace(options.Format)
-	if format == "" {
-		format = "mp3"
+		voice = "mimo_default"
 	}
 
 	return &MimoTTSProvider{
 		apiKey:     apiKey,
 		apiBase:    apiBase,
 		voice:      voice,
-		format:     format,
+		format:     "mp3",
 		model:      model,
 		httpClient: client,
 	}

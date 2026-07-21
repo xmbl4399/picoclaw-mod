@@ -13,4 +13,6 @@ Thumbs.db
 
 # Build artifacts
 picoclaw_final
+picoclaw_new_mipsle
 *.exe
+*.bak

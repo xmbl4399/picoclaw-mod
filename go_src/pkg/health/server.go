@@ -4,30 +4,30 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"fmt"
-	"io"
 	"maps"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/sipeed/picoclaw/pkg/routing"
 )
 
 type Server struct {
-	server       *http.Server
-	mu           sync.RWMutex
-	ready        bool
-	checks       map[string]Check
-	startTime    time.Time
-	reloadFunc   func() error
-	authToken    string // optional bearer token for protected endpoints
-	configPath   string // path to config.json for model switching
-	getModelList func() []string // returns list of available model names
-	getCurModel  func() string // returns current active model name
+	server     *http.Server
+	mu         sync.RWMutex
+	ready      bool
+	checks     map[string]Check
+	startTime  time.Time
+	reloadFunc func() error
+	authToken  string // optional bearer token for protected endpoints
+
+	activeCharacter        atomic.Value // holds string; empty = no character active
+	characterChangeCallback func(string) // called when SetActiveCharacter is called
 }
 
 type Check struct {
@@ -56,6 +56,9 @@ func NewServer(host string, port int, token string) *Server {
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
 	mux.HandleFunc("/reload", s.reloadHandler)
+	mux.HandleFunc("/character/active", s.characterActiveHandler)
+	mux.HandleFunc("/character/clear", s.characterClearHandler)
+	mux.HandleFunc("/", serveWebUI)
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	s.server = &http.Server{
@@ -126,566 +129,6 @@ func (s *Server) SetReloadFunc(fn func() error) {
 	s.reloadFunc = fn
 }
 
-// SetModelConfig sets config path and callbacks for model switching.
-func (s *Server) SetModelConfig(configPath string, getModelList func() []string, getCurModel func() string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.configPath = configPath
-	s.getModelList = getModelList
-	s.getCurModel = getCurModel
-}
-
-func (s *Server) modelsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	if r.Method == http.MethodOptions { w.WriteHeader(204); return }
-	w.Header().Set("Content-Type", "application/json")
-	s.mu.RLock()
-	getList := s.getModelList
-	getCur := s.getCurModel
-	s.mu.RUnlock()
-
-	if getList == nil {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{"models": []string{}, "current": ""})
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{
-		"models":  getList(),
-		"current": getCur(),
-	})
-}
-
-func (s *Server) modelSwitchHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	if r.Method == http.MethodOptions { w.WriteHeader(204); return }
-
-	modelName := r.URL.Query().Get("model")
-	if modelName == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "model parameter required"})
-		return
-	}
-
-	s.mu.RLock()
-	configPath := s.configPath
-	s.mu.RUnlock()
-
-	if configPath == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "model switching not configured"})
-		return
-	}
-
-	// Read config, change model_name, save
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("read config: %v", err)})
-		return
-	}
-
-	var cfg map[string]any
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("parse config: %v", err)})
-		return
-	}
-
-	// Update model_name in agents.defaults
-	if agents, ok := cfg["agents"].(map[string]any); ok {
-		if defaults, ok := agents["defaults"].(map[string]any); ok {
-			defaults["model_name"] = modelName
-		}
-	}
-
-	newData, err := json.MarshalIndent(cfg, "", "    ")
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("marshal config: %v", err)})
-		return
-	}
-
-	if err := os.WriteFile(configPath, newData, 0600); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("write config: %v", err)})
-		return
-	}
-
-	// Trigger reload
-	s.mu.RLock()
-	reloadFunc := s.reloadFunc
-	s.mu.RUnlock()
-
-	if reloadFunc != nil {
-		_ = reloadFunc()
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "switched",
-		"model":  modelName,
-	})
-}
-
-func (s *Server) configHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == http.MethodOptions { w.WriteHeader(204); return }
-
-	s.mu.RLock()
-	configPath := s.configPath
-	s.mu.RUnlock()
-
-	if configPath == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "config path not set"})
-		return
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		var cfg map[string]any
-		json.Unmarshal(data, &cfg)
-		result := map[string]any{}
-
-		// All agent defaults (safe subset)
-		if agents, ok := cfg["agents"].(map[string]any); ok {
-			if defaults, ok := agents["defaults"].(map[string]any); ok {
-				safe := map[string]any{}
-				for _, k := range []string{
-					"workspace","restrict_to_workspace","allow_read_outside_workspace",
-					"max_tokens","max_tool_iterations","temperature","context_window",
-					"max_media_size","steering_mode","summarize_message_threshold",
-					"summarize_token_percent","max_llm_retries","llm_retry_backoff_secs",
-					"split_on_marker","context_manager","max_parallel_turns",
-					"model_fallbacks","image_model","character_prompt",
-				} {
-					if v, ok := defaults[k]; ok { safe[k] = v }
-				}
-				// Sub-objects
-				for _, k := range []string{"subturn","tool_feedback","turn_profile","routing"} {
-					if v, ok := defaults[k]; ok { safe[k] = v }
-				}
-				result["agents"] = map[string]any{"defaults": safe}
-			}
-		}
-
-		// Tools config
-		if tools, ok := cfg["tools"].(map[string]any); ok {
-			safe := map[string]any{}
-			for _, k := range []string{"allow_read_paths","allow_write_paths","exec","skills","cron"} {
-				if v, ok := tools[k]; ok { safe[k] = v }
-			}
-			if web, ok := tools["web"].(map[string]any); ok {
-				safe["web"] = map[string]any{"enabled": web["enabled"], "provider": web["provider"]}
-			}
-			result["tools"] = safe
-		}
-
-		// Current model config
-		curModel := ""
-		if a, ok := cfg["agents"].(map[string]any); ok {
-			if d, ok := a["defaults"].(map[string]any); ok {
-				curModel, _ = d["model_name"].(string)
-			}
-		}
-		if models, ok := cfg["model_list"].([]any); ok {
-			for _, m := range models {
-				if mm, ok := m.(map[string]any); ok && mm["model_name"] == curModel {
-					mc := map[string]any{}
-					for _, k := range []string{"model","provider","api_base","rpm",
-						"request_timeout","thinking_level","max_tokens_field",
-						"tool_schema_transform","streaming","proxy","connect_mode"} {
-						if v, ok := mm[k]; ok { mc[k] = v }
-					}
-					result["current_model"] = mc
-					break
-				}
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
-		return
-	}
-
-	// POST: partial update with expanded whitelist
-	var patch map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	var cfg map[string]any
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Whitelisted fields for agents.defaults patch
-	agentFields := map[string]bool{
-		"workspace":true,"restrict_to_workspace":true,"allow_read_outside_workspace":true,
-		"max_tokens":true,"max_tool_iterations":true,"temperature":true,"context_window":true,
-		"max_media_size":true,"steering_mode":true,"summarize_message_threshold":true,
-		"summarize_token_percent":true,"max_llm_retries":true,"llm_retry_backoff_secs":true,
-		"split_on_marker":true,"context_manager":true,"max_parallel_turns":true,
-		"model_fallbacks":true,"image_model":true,"character_prompt":true,
-	}
-	toolFields := map[string]bool{
-		"allow_read_paths":true,"allow_write_paths":true,
-	}
-	modelFields := map[string]bool{
-		"model":true,"provider":true,"api_base":true,"rpm":true,
-		"request_timeout":true,"thinking_level":true,"max_tokens_field":true,
-		"tool_schema_transform":true,"proxy":true,"connect_mode":true,
-	}
-
-	// Apply to agents.defaults
-	if section, ok := cfg["agents"].(map[string]any); ok {
-		if defaults, ok := section["defaults"].(map[string]any); ok {
-			for k, v := range patch {
-				if agentFields[k] { defaults[k] = v }
-			}
-		}
-		// Patch current model config
-		curModel := ""
-		if d, ok := section["defaults"].(map[string]any); ok {
-			curModel, _ = d["model_name"].(string)
-		}
-		if models, ok := cfg["model_list"].([]any); ok {
-			for _, m := range models {
-				if mm, ok := m.(map[string]any); ok && mm["model_name"] == curModel {
-					for k, v := range patch {
-						if modelFields[k] { mm[k] = v }
-					}
-					break
-				}
-			}
-		}
-	}
-	// Apply to tools
-	if tools, ok := cfg["tools"].(map[string]any); ok {
-		for k, v := range patch {
-			if toolFields[k] { tools[k] = v }
-		}
-		// Also patch nested exec settings
-		if exec, ok := tools["exec"].(map[string]any); ok {
-			for k, v := range patch {
-				if k == "custom_allow_patterns" || k == "custom_deny_patterns" || k == "enable_deny_patterns" {
-					exec[k] = v
-				}
-			}
-		}
-	}
-
-	newData, err := json.MarshalIndent(cfg, "", "    ")
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-	if err := os.WriteFile(configPath, newData, 0600); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	s.mu.RLock()
-	reloadFunc := s.reloadFunc
-	s.mu.RUnlock()
-	if reloadFunc != nil { _ = reloadFunc() }
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
-}
-
-func (s *Server) characterClearHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	if r.Method == http.MethodOptions { w.WriteHeader(204); return }
-
-	// GET: return character registry (workspace/characters/_registry.json)
-	if r.Method == http.MethodGet {
-		s.characterListHandler(w, r)
-		return
-	}
-
-	// DELETE: remove a character from registry + file
-	if r.Method == http.MethodDelete {
-		s.characterDeleteHandler(w, r)
-		return
-	}
-
-	s.mu.RLock()
-	configPath := s.configPath
-	s.mu.RUnlock()
-
-	// POST: Read body - if it contains character prompt text, activate; if empty, clear
-	body, _ := io.ReadAll(r.Body)
-	isClear := len(body) == 0 || string(body) == "" || string(body) == "{}"
-
-	// Update config.json
-	data, err := os.ReadFile(configPath)
-	workspace := "/root/.picoclaw/workspace"
-	if err == nil {
-		var cfg map[string]any
-		json.Unmarshal(data, &cfg)
-		if agents, ok := cfg["agents"].(map[string]any); ok {
-			if defaults, ok := agents["defaults"].(map[string]any); ok {
-				if isClear {
-					defaults["character_prompt"] = ""
-				} else {
-					defaults["character_prompt"] = string(body)
-				}
-				if ws, ok := defaults["workspace"].(string); ok && ws != "" {
-					workspace = ws
-				}
-			}
-		}
-		newData, _ := json.MarshalIndent(cfg, "", "    ")
-		os.WriteFile(configPath, newData, 0600)
-	}
-	if isClear {
-		// Clear character: write default empty CHARACTER.md, keep SOUL.md intact
-		os.WriteFile(filepath.Join(workspace, "CHARACTER.md"), []byte("# Character\n\nNo active character. Default PicoClaw mode.\n"), 0644)
-	} else {
-		// Activate character: write persona to CHARACTER.md, do NOT touch SOUL.md
-		os.WriteFile(filepath.Join(workspace, "CHARACTER.md"), []byte("# Character Role\n\n"+string(body)), 0644)
-	}
-
-	// Update characters.json registry for agent-accessible character switching
-	charName := r.URL.Query().Get("name")
-	promptPreview := string(body)
-	if len(promptPreview) > 120 {
-		promptPreview = promptPreview[:120]
-	}
-	updateCharacterRegistry(workspace, charName, string(body), isClear)
-
-	s.mu.RLock()
-	reloadFunc := s.reloadFunc
-	s.mu.RUnlock()
-	if reloadFunc != nil { _ = reloadFunc() }
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
-}
-
-// characterListHandler returns the _registry.json as JSON (GET /character/clear)
-func (s *Server) characterListHandler(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	configPath := s.configPath
-	s.mu.RUnlock()
-
-	workspace := "/root/.picoclaw/workspace"
-	data, err := os.ReadFile(configPath)
-	if err == nil {
-		var cfg map[string]any
-		if json.Unmarshal(data, &cfg) == nil {
-			if agents, ok := cfg["agents"].(map[string]any); ok {
-				if defaults, ok := agents["defaults"].(map[string]any); ok {
-					if ws, ok := defaults["workspace"].(string); ok && ws != "" {
-						workspace = ws
-					}
-				}
-			}
-		}
-	}
-
-	registryPath := filepath.Join(workspace, "characters", "_registry.json")
-	registryData, err := os.ReadFile(registryPath)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"characters":  []any{},
-			"active_char": "",
-		})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(registryData)
-}
-
-// characterDeleteHandler deletes a character from the registry + file (DELETE /character/clear?id=xxx)
-func (s *Server) characterDeleteHandler(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	configPath := s.configPath
-	s.mu.RUnlock()
-
-	charID := r.URL.Query().Get("id")
-	if charID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing id"})
-		return
-	}
-
-	workspace := "/root/.picoclaw/workspace"
-	data, err := os.ReadFile(configPath)
-	if err == nil {
-		var cfg map[string]any
-		if json.Unmarshal(data, &cfg) == nil {
-			if agents, ok := cfg["agents"].(map[string]any); ok {
-				if defaults, ok := agents["defaults"].(map[string]any); ok {
-					if ws, ok := defaults["workspace"].(string); ok && ws != "" {
-						workspace = ws
-					}
-				}
-			}
-		}
-	}
-
-	registryPath := filepath.Join(workspace, "characters", "_registry.json")
-	type CharEntry struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Preview string `json:"preview"`
-	}
-	type Registry struct {
-		Characters []CharEntry `json:"characters"`
-		ActiveChar string      `json:"active_char"`
-	}
-
-	var reg Registry
-	regData, err := os.ReadFile(registryPath)
-	if err == nil {
-		json.Unmarshal(regData, &reg)
-	}
-
-	// Remove from registry
-	var filtered []CharEntry
-	for _, c := range reg.Characters {
-		if c.ID != charID {
-			filtered = append(filtered, c)
-		}
-	}
-	reg.Characters = filtered
-	if reg.ActiveChar == charID {
-		reg.ActiveChar = ""
-		// Also clear the character config
-		s.clearCharacterConfig(configPath, workspace)
-	}
-
-	// Save registry
-	newData, _ := json.MarshalIndent(reg, "", "  ")
-	os.WriteFile(registryPath, newData, 0644)
-
-	// Remove character file
-	charFile := filepath.Join(workspace, "characters", charID+".md")
-	os.Remove(charFile)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
-}
-
-// clearCharacterConfig clears the active character from config.json and CHARACTER.md
-func (s *Server) clearCharacterConfig(configPath, workspace string) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return
-	}
-	var cfg map[string]any
-	if json.Unmarshal(data, &cfg) != nil {
-		return
-	}
-	agents, ok := cfg["agents"].(map[string]any)
-	if !ok {
-		return
-	}
-	defaults, ok := agents["defaults"].(map[string]any)
-	if !ok {
-		return
-	}
-	defaults["character_prompt"] = ""
-	newData, _ := json.MarshalIndent(cfg, "", "    ")
-	os.WriteFile(configPath, newData, 0600)
-	os.WriteFile(filepath.Join(workspace, "CHARACTER.md"), []byte("# Character\n\nNo active character. Default PicoClaw mode.\n"), 0644)
-}
-
-func updateCharacterRegistry(workspace, charName, prompt string, isClear bool) {
-	registryPath := filepath.Join(workspace, "characters", "_registry.json")
-	os.MkdirAll(filepath.Join(workspace, "characters"), 0755)
-
-	type CharEntry struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Preview string `json:"preview"`
-	}
-	type Registry struct {
-		Characters []CharEntry `json:"characters"`
-		ActiveChar string      `json:"active_char"`
-	}
-
-	var reg Registry
-	data, err := os.ReadFile(registryPath)
-	if err == nil {
-		json.Unmarshal(data, &reg)
-	}
-
-	charID := sanitizeID(charName)
-	if isClear {
-		reg.ActiveChar = ""
-	} else if charName != "" {
-		// Save character prompt to dedicated file for agent read access
-		charFile := filepath.Join(workspace, "characters", charID+".md")
-		os.WriteFile(charFile, []byte(prompt), 0644)
-		reg.ActiveChar = charID
-		// Add or update entry
-		found := false
-		preview := charName
-		for i, c := range reg.Characters {
-			if c.ID == charID {
-				reg.Characters[i].Preview = preview
-				found = true
-				break
-			}
-		}
-		if !found {
-			reg.Characters = append(reg.Characters, CharEntry{ID: charID, Name: charName, Preview: preview})
-		}
-	}
-
-	regData, _ := json.MarshalIndent(reg, "", "  ")
-	os.WriteFile(registryPath, regData, 0644)
-}
-
-func sanitizeID(name string) string {
-	id := strings.ToLower(name)
-	id = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return '-'
-	}, id)
-	id = strings.Trim(id, "-")
-	if id == "" { id = "char" }
-	return id
-}
-
 func (s *Server) reloadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
@@ -733,9 +176,6 @@ func (s *Server) reloadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	if r.Method == http.MethodOptions { w.WriteHeader(204); return }
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -795,17 +235,124 @@ type HandlerMux interface {
 	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
 }
 
-// RegisterOnMux registers /health, /ready and /reload handlers onto the given mux.
+// RegisterOnMux registers /health, /ready, /reload, /character/active
+// and the root web UI (/) handlers onto the given mux.
 // This allows the health endpoints to be served by a shared HTTP server.
 func (s *Server) RegisterOnMux(mux HandlerMux) {
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
 	mux.HandleFunc("/reload", s.reloadHandler)
-	mux.HandleFunc("/models", s.modelsHandler)
-	mux.HandleFunc("/model/switch", s.modelSwitchHandler)
-	mux.HandleFunc("/config", s.configHandler)
+	mux.HandleFunc("/character/active", s.characterActiveHandler)
 	mux.HandleFunc("/character/clear", s.characterClearHandler)
+	// Register the web chat UI at the root path.
+	// Go 1.22+ ServeMux prioritizes longer, more specific patterns over
+	// shorter prefix patterns, so /, /pico/, /character/active etc.
+	// will correctly dispatch to their respective handlers.
 	mux.HandleFunc("/", serveWebUI)
+}
+
+// SetActiveCharacter stores the currently active character ID (safe for concurrent use).
+// An empty value means no character is active (default agent persona).
+// When a non-empty character ID is set, the characterChangeCallback (if non-nil) is invoked.
+func (s *Server) SetActiveCharacter(characterID string) {
+	id := strings.TrimSpace(characterID)
+	s.activeCharacter.Store(id)
+	if s.characterChangeCallback != nil {
+		s.characterChangeCallback(id)
+	}
+}
+
+// SetCharacterChangeCallback sets a callback that fires when a character becomes active.
+func (s *Server) SetCharacterChangeCallback(fn func(characterID string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.characterChangeCallback = fn
+}
+
+// ActiveCharacter returns the currently active character ID, or "" if none.
+func (s *Server) ActiveCharacter() string {
+	val := s.activeCharacter.Load()
+	if val == nil {
+		return ""
+	}
+	return val.(string)
+}
+
+// CharacterGetter returns a function that returns the current active character ID.
+// This is a convenience for passing to channels.
+func (s *Server) CharacterGetter() func() string {
+	return s.ActiveCharacter
+}
+
+// characterClearHandler handles POST /character/clear?name=...&id=...
+// Used by the WebUI on character switch to set the active character.
+// The prompt body is accepted but ignored — the backend only needs the ID.
+func (s *Server) characterClearHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		id = r.URL.Query().Get("name")
+	}
+	if id == "" {
+		http.Error(w, "missing name or id parameter", http.StatusBadRequest)
+		return
+	}
+	s.SetActiveCharacter(id)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "character_id": id})
+}
+
+// characterActiveHandler serves GET /character/active returning the active character ID
+// or records the active character via POST (JSON: {"character_id": "..."}).
+// POST requires Bearer token authentication when authToken is configured.
+func (s *Server) characterActiveHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"character_id": s.ActiveCharacter(),
+		})
+
+	case http.MethodPost:
+		// Require authentication
+		s.mu.RLock()
+		requiredToken := s.authToken
+		s.mu.RUnlock()
+		if requiredToken != "" {
+			given := extractBearerToken(r.Header.Get("Authorization"))
+			if given == "" || subtle.ConstantTimeCompare([]byte(given), []byte(requiredToken)) != 1 {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		var body struct {
+			CharacterID string `json:"character_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Normalize the character ID
+		id := routing.NormalizeAgentID(body.CharacterID)
+		s.SetActiveCharacter(id)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"character_id": id,
+		})
+
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed, use GET or POST"})
+	}
 }
 
 func statusString(ok bool) string {

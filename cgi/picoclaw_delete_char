@@ -1,0 +1,21 @@
+#!/bin/sh
+printf 'Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n'
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+  printf 'Content-Type: text/plain\r\n\r\nok'
+  exit 0
+fi
+printf 'Content-Type: application/json\r\n\r\n'
+
+ID=$(echo "$QUERY_STRING" | sed 's/.*[?&]\?id=//;s/[&].*//' | tr -cd 'a-zA-Z0-9_-')
+if [ -z "$ID" ]; then
+  printf '{"error":"missing id (use ?id=xxx)"}'
+  exit 0
+fi
+
+FILE="/root/.picoclaw/workspace/characters/${ID}.md"
+if [ -f "$FILE" ]; then
+  rm -f "$FILE"
+  printf '{"status":"deleted","id":"%s","file":true}' "$ID"
+else
+  printf '{"status":"not_found","id":"%s"}' "$ID"
+fi

@@ -1,0 +1,12 @@
+#!/bin/sh
+QUERY="$QUERY_STRING"
+ID="${QUERY#*id=}"
+ID="${ID%%&*}"
+ID=$(echo "$ID" | tr -cd 'a-zA-Z0-9_-')
+printf "Access-Control-Allow-Origin: *\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+FILE="/root/.picoclaw/workspace/characters/${ID}.md"
+if [ -f "$FILE" ]; then
+  cat "$FILE"
+else
+  printf "NOT_FOUND"
+fi

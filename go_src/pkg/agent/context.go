@@ -22,13 +22,13 @@ import (
 )
 
 type ContextBuilder struct {
-	workspace       string
-	skillsLoader    *skills.SkillsLoader
-	memory          *MemoryStore
-	splitOnMarker   bool
-	characterPrompt string
-	agentDiscovery  func(agentID string) []AgentDescriptor
-	promptRegistry  *PromptRegistry
+	workspace      string
+	skillsLoader   *skills.SkillsLoader
+	memory         *MemoryStore
+	splitOnMarker  bool
+	agentDiscovery func(agentID string) []AgentDescriptor
+	promptRegistry *PromptRegistry
+	characterID    string // empty = default agent, non-empty = character-isolated paths
 
 	// Cache for system prompt to avoid rebuilding on every call.
 	// This fixes issue #607: repeated reprocessing of the entire context.
@@ -36,7 +36,6 @@ type ContextBuilder struct {
 	systemPromptMutex  sync.RWMutex
 	cachedSystemPrompt string
 	cachedAt           time.Time // max observed mtime across tracked paths at cache build time
-	cachedCharacterPrompt string // tracks character_prompt content for cache invalidation
 
 	// existedAtCache tracks which source file paths existed the last time the
 	// cache was built. This lets sourceFilesChanged detect files that are newly
@@ -95,11 +94,20 @@ func (cb *ContextBuilder) WithAgentDiscovery(
 	return cb
 }
 
+// WithCharacterID sets the character ID for character-isolated memory and RULES.md path.
+// Pass "" for the default agent (no character isolation).
+func (cb *ContextBuilder) WithCharacterID(id string) *ContextBuilder {
+	cb.characterID = id
+	cb.memory.SetCharacterID(id)
+	cb.InvalidateCache()
+	return cb
+}
+
 func getGlobalConfigDir() string {
 	return config.GetHome()
 }
 
-func NewContextBuilder(workspace string, characterPrompt string) *ContextBuilder {
+func NewContextBuilder(workspace string) *ContextBuilder {
 	// builtin skills: skills directory in current project
 	// Use the skills/ directory under the current working directory
 	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
@@ -116,11 +124,10 @@ func NewContextBuilder(workspace string, characterPrompt string) *ContextBuilder
 	globalSkillsDir := filepath.Join(getGlobalConfigDir(), "skills")
 
 	return &ContextBuilder{
-		workspace:       workspace,
-		skillsLoader:    skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
-		memory:          NewMemoryStore(workspace),
-		characterPrompt: characterPrompt,
-		promptRegistry:  NewPromptRegistry(),
+		workspace:      workspace,
+		skillsLoader:   skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
+		memory:         NewMemoryStore(workspace),
+		promptRegistry: NewPromptRegistry(),
 	}
 }
 
@@ -176,10 +183,18 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 		rules[i] = fmt.Sprintf("%d. %s", i+1, rule)
 	}
 
+	// When a character is active, omit the "You are picoclaw" identity line
+	// to avoid conflicting with the character card loaded from SOUL.md.
+	// The workspace info and rules are still injected regardless.
+	identityLine := "You are picoclaw, a helpful AI assistant."
+	if cb.characterID != "" {
+		identityLine = ""
+	}
+
 	return fmt.Sprintf(
 		`# picoclaw 🦞 (%s)
 
-You are picoclaw, a helpful AI assistant.
+%s
 
 ## Workspace
 Your workspace is at: %s
@@ -192,6 +207,7 @@ Your workspace is at: %s
 %s
 `,
 		version,
+		identityLine,
 		workspacePath,
 		workspacePath,
 		workspacePath,
@@ -252,14 +268,13 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 	}
 
 	// Core identity section
-	identityContent := cb.getIdentity(opts.IncludeToolUseRule)
 	add(PromptPart{
 		ID:      "kernel.identity",
 		Layer:   PromptLayerKernel,
 		Slot:    PromptSlotIdentity,
 		Source:  PromptSource{ID: PromptSourceKernel, Name: "identity"},
 		Title:   "picoclaw identity",
-		Content: identityContent,
+		Content: cb.getIdentity(opts.IncludeToolUseRule),
 		Stable:  true,
 		Cache:   PromptCacheEphemeral,
 	})
@@ -348,12 +363,10 @@ Each part separated by the marker will be sent as an independent message.`,
 // BuildSystemPromptWithCache returns the cached system prompt if available
 // and source files haven't changed, otherwise builds and caches it.
 // Source file changes are detected via mtime checks (cheap stat calls).
-// Character prompt changes also invalidate the cache.
 func (cb *ContextBuilder) BuildSystemPromptWithCache() string {
 	// Try read lock first — fast path when cache is valid
 	cb.systemPromptMutex.RLock()
-	if cb.cachedSystemPrompt != "" && !cb.sourceFilesChangedLocked() &&
-		cb.cachedCharacterPrompt == cb.characterPrompt {
+	if cb.cachedSystemPrompt != "" && !cb.sourceFilesChangedLocked() {
 		result := cb.cachedSystemPrompt
 		cb.systemPromptMutex.RUnlock()
 		return result
@@ -379,7 +392,6 @@ func (cb *ContextBuilder) BuildSystemPromptWithCache() string {
 	prompt := cb.BuildSystemPrompt()
 	cb.cachedSystemPrompt = prompt
 	cb.cachedAt = baseline.maxMtime
-	cb.cachedCharacterPrompt = cb.characterPrompt
 	cb.existedAtCache = baseline.existed
 	cb.skillFilesAtCache = baseline.skillFiles
 
@@ -533,7 +545,6 @@ func (cb *ContextBuilder) InvalidateCache() {
 
 	cb.cachedSystemPrompt = ""
 	cb.cachedAt = time.Time{}
-	cb.cachedCharacterPrompt = ""
 	cb.existedAtCache = nil
 	cb.skillFilesAtCache = nil
 
@@ -546,7 +557,12 @@ func (cb *ContextBuilder) InvalidateCache() {
 func (cb *ContextBuilder) sourcePaths() []string {
 	agentDefinition := cb.LoadAgentDefinition()
 	paths := agentDefinition.trackedPaths(cb.workspace)
-	paths = append(paths, filepath.Join(cb.workspace, "memory", "MEMORY.md"))
+	// Track per-character memory file (or default if no character).
+	memoryPath := cb.memory.MemoryFilePath()
+	paths = append(paths, memoryPath)
+
+	// Track RULES.md for cache invalidation.
+	paths = append(paths, filepath.Join(cb.workspace, "RULES.md"))
 	return uniquePaths(paths)
 }
 
@@ -754,16 +770,6 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	var sb strings.Builder
 
 	agentDefinition := cb.LoadAgentDefinition()
-
-	// CHARACTER.md: pure character persona (highest bootstrap priority)
-	if agentDefinition.Character != nil && agentDefinition.Character.Content != "" {
-		fmt.Fprintf(
-			&sb,
-			"## CHARACTER.md (角色人设)\n\n%s\n\n",
-			agentDefinition.Character.Content,
-		)
-	}
-
 	if agentDefinition.Agent != nil {
 		label := string(agentDefinition.Source)
 		if label == "" {
@@ -771,9 +777,23 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 		}
 		fmt.Fprintf(&sb, "## %s\n\n%s\n\n", label, agentDefinition.Agent.Body)
 	}
-
+	if agentDefinition.Soul != nil {
+		fmt.Fprintf(
+			&sb,
+			"## %s\n\n%s\n\n",
+			relativeWorkspacePath(cb.workspace, agentDefinition.Soul.Path),
+			agentDefinition.Soul.Content,
+		)
+	}
 	if agentDefinition.User != nil {
 		fmt.Fprintf(&sb, "## %s\n\n%s\n\n", "USER.md", agentDefinition.User.Content)
+	}
+
+	// Load permanent rules file that applies across all character switches.
+	// RULES.md is NOT overwritten by character switching — it's always present.
+	rulesPath := filepath.Join(cb.workspace, "RULES.md")
+	if data, err := os.ReadFile(rulesPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		fmt.Fprintf(&sb, "## %s\n\n%s\n\n", "RULES.md", data)
 	}
 
 	if agentDefinition.Source != AgentDefinitionSourceAgent {
@@ -781,16 +801,6 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 		if data, err := os.ReadFile(filePath); err == nil {
 			fmt.Fprintf(&sb, "## %s\n\n%s\n\n", "IDENTITY.md", data)
 		}
-	}
-
-	// SOUL.md: global behavioral rules — placed LAST for highest attention weight.
-	// This ensures output format rules (options, etc.) are closest to the conversation.
-	if agentDefinition.Soul != nil {
-		fmt.Fprintf(
-			&sb,
-			"## SOUL.md (行为规则 — 最高优先级，覆盖角色设定下的输出格式)\n\n%s\n\n",
-			agentDefinition.Soul.Content,
-		)
 	}
 
 	return sb.String()

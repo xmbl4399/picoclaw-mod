@@ -8,7 +8,6 @@ package providers
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -18,14 +17,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers/bedrock"
 	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
-
-// minInt helper for debug logging
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
 func createClaudeAuthProvider() (LLMProvider, error) {
@@ -125,9 +116,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			return finalizeProviderFromConfig(provider, modelID, cfg)
 		}
 		// OpenAI with API key
-		apiKeyVal := cfg.APIKey()
-		fmt.Fprintf(os.Stderr, "DEBUG factory: protocol=openai model=%s apiBase=%s apiKeyLen=%d apiKeyPrefix=%s\n", cfg.Model, cfg.APIBase, len(apiKeyVal), apiKeyVal[:minInt(10, len(apiKeyVal))])
-		if apiKeyVal == "" && cfg.APIBase == "" {
+		if cfg.APIKey() == "" && cfg.APIBase == "" {
 			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
 		}
 		apiBase := cfg.APIBase
@@ -135,7 +124,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			apiBase = getDefaultAPIBase(protocol)
 		}
 		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
-			apiKeyVal,
+			cfg.APIKey(),
 			apiBase,
 			cfg.Proxy,
 			cfg.MaxTokensField,
@@ -223,7 +212,6 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if apiBase == "" {
 			apiBase = getDefaultAPIBase(protocol)
 		}
-		fmt.Fprintf(os.Stderr, "DEBUG factory: protocol=%s model=%s apiBase=%s apiKeyLen=%d apiKeyPrefix=%s\n", protocol, modelID, apiBase, len(cfg.APIKey()), cfg.APIKey()[:minInt(10, len(cfg.APIKey()))])
 		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
 			cfg.APIKey(),
 			apiBase,
