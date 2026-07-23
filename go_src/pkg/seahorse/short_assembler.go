@@ -55,9 +55,32 @@ func (a *Assembler) Assemble(ctx context.Context, convID int64, input AssembleIn
 	}
 
 	// Split into evictable prefix and protected fresh tail
-	tailStart := len(resolved) - FreshTailCount
-	if tailStart < 0 {
-		tailStart = 0
+	// Use token-budget-aware computation: protect FreshTailTokenPercent of budget
+	// as fresh context, falling back to fixed FreshTailCount when budget is unknown.
+	tailStart := 0
+	freshTailBudget := int(float64(input.Budget) * FreshTailTokenPercent / 100.0)
+	if freshTailBudget > 0 {
+		// Walk from newest to oldest, accumulating tokens up to freshTailBudget.
+		accum := 0
+		for i := len(resolved) - 1; i >= 0; i-- {
+			if accum+resolved[i].tokenCount <= freshTailBudget {
+				accum += resolved[i].tokenCount
+				tailStart = i
+			} else {
+				// Include this item if the tail would otherwise be empty
+				if tailStart == len(resolved) {
+					tailStart = i
+				}
+				break
+			}
+		}
+	}
+	// Fallback: fixed FreshTailCount when budget-based computation is empty
+	if tailStart == len(resolved) {
+		tailStart = len(resolved) - FreshTailCount
+		if tailStart < 0 {
+			tailStart = 0
+		}
 	}
 	evictable := resolved[:tailStart]
 	freshTail := resolved[tailStart:]

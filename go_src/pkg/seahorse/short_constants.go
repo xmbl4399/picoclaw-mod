@@ -9,7 +9,8 @@ const (
 
 	// ContextThreshold is the compaction trigger for the context window.
 	ContextThreshold float64 = 0.75 // Compact at 75% of context window
-	FreshTailCount   int     = 32   // Recent messages protected from compaction
+	FreshTailCount   int     = 32   // Recent messages protected from compaction (legacy; prefer FreshTailTokenPercent)
+	FreshTailTokenPercent float64 = 20   // Percentage of budget reserved for fresh (unsummarized) context
 
 	// LeafMinFanout is the fanout parameter.
 	LeafMinFanout          int = 8 // Min messages per leaf summary

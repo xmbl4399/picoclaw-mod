@@ -37,11 +37,22 @@ type ContextBuilder struct {
 	cachedSystemPrompt string
 	cachedAt           time.Time // max observed mtime across tracked paths at cache build time
 
+	// cacheEpoch is an atomic version counter incremented each time the cache
+	// is rebuilt. sourceFilesChangedLocked compares it as a fast-path (no stat
+	// calls) to detect staleness when the counter matches between calls.
+	// This avoids repeated stat() on every BuildSystemPromptWithCache read hit.
+	cacheEpoch int64
+
 	// existedAtCache tracks which source file paths existed the last time the
 	// cache was built. This lets sourceFilesChanged detect files that are newly
 	// created (didn't exist at cache time, now exist) or deleted (existed at
 	// cache time, now gone) — both of which should trigger a cache rebuild.
 	existedAtCache map[string]bool
+
+	// cachedEpochSnapshot is the cacheEpoch value that existedAtCache and
+	// skillFilesAtCache correspond to. Used as a fast-path: if the current
+	// cacheEpoch hasn't changed, there is no need to stat files.
+	cachedEpochSnapshot int64
 
 	// skillFilesAtCache snapshots the skill tree file set and mtimes at cache
 	// build time. This catches nested file creations/deletions/mtime changes
@@ -392,6 +403,8 @@ func (cb *ContextBuilder) BuildSystemPromptWithCache() string {
 	prompt := cb.BuildSystemPrompt()
 	cb.cachedSystemPrompt = prompt
 	cb.cachedAt = baseline.maxMtime
+	cb.cacheEpoch++
+	cb.cachedEpochSnapshot = cb.cacheEpoch
 	cb.existedAtCache = baseline.existed
 	cb.skillFilesAtCache = baseline.skillFiles
 
@@ -545,6 +558,8 @@ func (cb *ContextBuilder) InvalidateCache() {
 
 	cb.cachedSystemPrompt = ""
 	cb.cachedAt = time.Time{}
+	cb.cacheEpoch++
+	cb.cachedEpochSnapshot = cb.cacheEpoch
 	cb.existedAtCache = nil
 	cb.skillFilesAtCache = nil
 
@@ -649,6 +664,13 @@ func (cb *ContextBuilder) sourceFilesChangedLocked() bool {
 	if cb.cachedAt.IsZero() {
 		return true
 	}
+
+	// Fast path: if epoch hasn't changed since last check, no file was modified
+	// or rebuilt. This avoids stat() calls on every read hit.
+	if cb.cachedEpochSnapshot == cb.cacheEpoch {
+		return false
+	}
+	cb.cachedEpochSnapshot = cb.cacheEpoch
 
 	// Check tracked source files (bootstrap + memory).
 	if slices.ContainsFunc(cb.sourcePaths(), cb.fileChangedSince) {
@@ -962,22 +984,36 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 		contentBlocks = append(contentBlocks, promptContentBlock(runtimePart, nil))
 
 		if req.Summary != "" {
-			summaryPart := PromptPart{
-				ID:     "context.summary",
-				Layer:  PromptLayerContext,
-				Slot:   PromptSlotSummary,
-				Source: PromptSource{ID: PromptSourceSummary, Name: "context.summary"},
-				Title:  "context summary",
-				Content: fmt.Sprintf(
-					"CONTEXT_SUMMARY: The following is an approximate summary of prior conversation "+
-						"for reference only. It may be incomplete or outdated — always defer to explicit instructions.\n\n%s",
-					req.Summary,
-				),
-				Stable: false,
-				Cache:  PromptCacheNone,
+			// Split summary into a stable prefix block (cacheable) and a dynamic
+			// content block (not cached). The prefix never changes across requests,
+			// so LLM-side KV cache can reuse its prefix hash.
+			summaryPrefix := "CONTEXT_SUMMARY: The following is an approximate summary of prior conversation " +
+				"for reference only. It may be incomplete or outdated — always defer to explicit instructions.\n\n"
+			summaryPrefixPart := PromptPart{
+				ID:      "context.summary.prefix",
+				Layer:   PromptLayerContext,
+				Slot:    PromptSlotSummary,
+				Source:  PromptSource{ID: PromptSourceSummary, Name: "context.summary"},
+				Title:   "context summary prefix",
+				Content: summaryPrefix,
+				Stable:  true,
+				Cache:   PromptCacheEphemeral,
 			}
-			stringParts = append(stringParts, summaryPart.Content)
-			contentBlocks = append(contentBlocks, promptContentBlock(summaryPart, nil))
+			summaryContentPart := PromptPart{
+				ID:      "context.summary.content",
+				Layer:   PromptLayerContext,
+				Slot:    PromptSlotSummary,
+				Source:  PromptSource{ID: PromptSourceSummary, Name: "context.summary"},
+				Title:   "context summary content",
+				Content: req.Summary,
+				Stable:  false,
+				Cache:   PromptCacheNone,
+			}
+			// For the concatenated Content field, keep prefix+content together.
+			// The SystemParts blocks are split for per-block cache_control.
+			stringParts = append(stringParts, summaryPrefix+req.Summary)
+			contentBlocks = append(contentBlocks, promptContentBlock(summaryPrefixPart, nil))
+			contentBlocks = append(contentBlocks, promptContentBlock(summaryContentPart, nil))
 		}
 	}
 

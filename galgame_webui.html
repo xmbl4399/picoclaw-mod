@@ -91,6 +91,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);height:100dv
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+@keyframes fadeIn{
+  from{opacity:0;transform:translateY(8px)}
+  to{opacity:1;transform:translateY(0)}
+}
 </style>
 </head>
 <body>
@@ -544,7 +548,7 @@ function handleMessage(msg) {
         var hmsgs = (msg.payload && msg.payload.messages) || [];
         if (hmsgs.length > 0) {
           messages = hmsgs.map(function(m, i) {
-            return { id: 'hist-' + i + '-' + Date.now(), role: m.role, content: m.content, modelName: getActiveCharName(), time: '' };
+            return { id: 'hist-' + i + '-' + Date.now(), role: m.role, content: m.content, modelName: getActiveCharName(), time: '', format: m.format || 'markdown' };
           });
           _historyLoaded = true;
           renderMessages();
@@ -574,13 +578,13 @@ function addOrUpdateBot(msg, isUpdate) {
 
   if (isUpdate) {
     var ex = findMsg(mid);
-    if (ex) { ex.content = content; ex.modelName = nm; } else {
-      messages.push({ id: mid, role: 'assistant', content: content, modelName: nm, time: ts });
+    if (ex) { ex.content = content; ex.modelName = nm; ex.format = payload.format || ex.format || 'markdown'; } else {
+      var fmt2 = payload.format || 'markdown'; messages.push({ id: mid, role: 'assistant', content: content, modelName: nm, time: ts, format: fmt2 });
     }
     if (!payload.placeholder && !payload.choices) stopTyping();
   } else {
     var idx = messages.findIndex(function(m) { return m.id === mid; });
-    var obj = { id: mid, role: 'assistant', content: content, modelName: nm, time: ts };
+    var fmt = payload.format || 'markdown'; var obj = { id: mid, role: 'assistant', content: content, modelName: nm, time: ts, format: fmt, kind: kind };
     if (idx >= 0) messages[idx] = obj; else messages.push(obj);
     if (!payload.placeholder && !payload.choices) stopTyping();
   }
@@ -607,7 +611,7 @@ function renderMessages() {
     } else {
       row.className = 'msg-row assistant';
       row.innerHTML = '<div class="head"><span class="name">' + escHtml(m.modelName || getActiveCharName()) + '</span><span>' + (m.time || '') + '</span></div>' +
-        '<div class="bubble">' + renderContent(m.content, m.kind) + '</div>';
+        '<div class="bubble">' + renderContent(m.content, m.format || m.kind) + '</div>';
     }
     c.appendChild(row);
   });
@@ -693,8 +697,8 @@ function handleStream(msg) {
     if (incomplete) buf = galBuffer[id].slice(0, -(lastLine.length));
 
     var ex = findMsg(id);
-    if (ex) { ex.content = buf; } else {
-      messages.push({ id: id, role: 'assistant', content: buf, modelName: getActiveCharName(), time: '' });
+    if (ex) { ex.content = buf; ex.format = 'gal'; } else {
+      messages.push({ id: id, role: 'assistant', content: buf, modelName: getActiveCharName(), time: '', format: format });
     }
 
     clearTimeout(galDebounceTimers[id]);
@@ -705,7 +709,7 @@ function handleStream(msg) {
   // Fallback: incremental update for text
   var ex = findMsg(id);
   if (ex) { ex.content = (ex.content || '') + content; attachGalIfNeeded(ex); }
-  else { messages.push({ id: id, role: 'assistant', content: content, modelName: getActiveCharName(), time: '' }); }
+  else { messages.push({ id: id, role: 'assistant', content: content, modelName: getActiveCharName(), time: '', format: format }); }
   renderMessages();
 }
 
@@ -715,6 +719,7 @@ function handleStreamEnd(msg) {
   var ex = findMsg(id);
   if (ex && galBuffer[id] !== undefined) {
     ex.content = galBuffer[id];
+    ex.format = 'gal';
     delete galBuffer[id];
     clearTimeout(galDebounceTimers[id]);
     delete galDebounceTimers[id];
@@ -765,6 +770,7 @@ function getActiveCharName() {
 }
 
 function sendChoice(text) {
+  document.querySelectorAll('.gal-option').forEach(function(b){b.disabled=true;});
   var input = document.getElementById('msgInput');
   input.value = text;
   send();
