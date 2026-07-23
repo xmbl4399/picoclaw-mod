@@ -109,3 +109,91 @@ Reply Rules（永久段）
 ```
 
 切换角色时保留下半段规则段，不被覆写。
+
+
+---
+
+---
+
+# PicoClaw 魔改日志 — 2026-07-24
+
+## 一、缓存命中率优化（Go 后端 3 项）
+
+### 1. System Prompt Cache — epoch 快速路径
+
+**文件**: `go_src/pkg/agent/context.go`
+
+**问题**: 每次 `BuildSystemPromptWithCache()` 读命中都遍历所有源文件做 stat()，导致毫秒级延迟。
+
+**解决**: 新增 `cacheEpoch` 递增版号 + `cachedEpochSnapshot`，`sourceFilesChangedLocked()` 先比较版号（纳秒级），一致则跳过 stat。
+
+### 2. Summary 前缀拆独立缓存块
+
+**文件**: `go_src/pkg/agent/context.go`
+
+**问题**: Summary 的前缀文案（"CONTEXT_SUMMARY: ..."）每次重复发送，从不参与 LLM KV 缓存。
+
+**解决**: 将固定前缀和摘要内容拆为两个 PromptPart：
+- 前缀 → `PromptCacheEphemeral`（可被 Anthropic KV 缓存）
+- 内容 → `PromptCacheNone`
+
+### 3. FreshTail 改为 Token 比例计算
+
+**文件**: `go_src/pkg/seahorse/short_constants.go`, `short_assembler.go`
+
+**问题**: 固定 `FreshTailCount=32` 在不同上下文窗口下适配不均——8K 窗口占太多，200K 窗口占太少。
+
+**解决**: 新增 `FreshTailTokenPercent = 20%`，组装器按 budget × 20% 累计最新消息 token 数，大窗口保护更多内容，小窗口自动收窄。
+
+---
+
+## 二、Galgame WebUI 修复（前端 4 项）
+
+### 1. format 字段全链路贯通
+
+**问题**: 服务端发 `payload.format: "gal"`，但前端接收→存储→渲染→持久化→恢复的全链路中都丢弃了这个字段。
+- `addOrUpdateBot` 只存 `{id, role, content, modelName, time}`，无 `format`
+- `renderMessages` 传 `m.kind` 而非 `m.format` 给 `renderContent`
+- `loadHistory` 恢复时也不恢复 `format`
+
+**修复**: 全部贯通。消息对象统一加 `format`，渲染传 `m.format || m.kind`。
+
+### 2. @keyframes fadeIn 缺失
+
+**问题**: CSS 引用了 `animation: fadeIn` 但 `<style>` 块中没有定义该 `@keyframes`。
+
+**修复**: 在 `</style>` 前补全动画定义。
+
+### 3. 选项按钮防连点
+
+**问题**: `sendChoice()` 只填输入框+发送，不禁止已点击按钮，连点会多次发送。
+
+**修复**: 在 `sendChoice` 开头加 `document.querySelectorAll('.gal-option').forEach(b => b.disabled = true)`。
+
+### 4. handleStreamEnd 未设 format
+
+**问题**: 流式结束时 `ex.content = galBuffer[id]` 后未设 `ex.format = 'gal'`。
+
+**修复**: 在 stream_end 逻辑补 `ex.format = 'gal'`。
+
+---
+
+## 三、跨平台交叉编译
+
+**背景**: 原始 `go_src/pkg/` 是 `github.com/sipeed/picoclaw` 的 drop-in 替换。完整编译需要原始 module 的 `cmd/picoclaw/main.go`。
+
+**解决**: 从 Go module cache 获取原始 module `v0.3.1`，替换 `pkg/` 目录后交叉编译：
+```
+GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath -ldflags="-s -w" -o /tmp/picoclaw_new_mipsle ./cmd/picoclaw
+```
+输出 32.8MB mipsle 二进制。
+
+## 四、部署
+
+```
+10.0.0.1 (OpenWrt)
+  ├─ /mnt/sda1/picoclaw_new          (新二进制 32.8MB)
+  ├─ /tmp/picoclaw_bin                (运行中的 binary)
+  └─ /tmp/picoclaw_webui.html         (修复后的 GAL WebUI)
+PID 13150 运行中。
+```
